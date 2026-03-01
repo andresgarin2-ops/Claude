@@ -124,7 +124,7 @@ class SISFEScraper:
                → seleccionar Colegio → ingresar Matrícula → ingresar Contraseña → submit.
         """
         login_url = self.config.get(
-            "login_url", "<https://sisfe.justiciasantafe.gov.ar>"
+            "login_url", "https://sisfe.justiciasantafe.gov.ar"
         )
         circunscripcion = self.config.get("circunscripcion", "Rosario")
         colegio = self.config.get("colegio", "Abogados")
@@ -132,7 +132,7 @@ class SISFEScraper:
         password = self.config.get("password", "")
 
         try:
-            <logger.info>(f"Navegando a {login_url}")
+            logger.info(f"Navegando a {login_url}")
             await self.page.goto(login_url, wait_until="load", timeout=60_000)
             await self._pause(1_000, 2_500)  # pausa inicial como humano
 
@@ -146,7 +146,7 @@ class SISFEScraper:
             ]
             mat_link = await self._find_element(matriculados_selectors, timeout=5_000)
             if mat_link:
-                <logger.info>("Sección Matriculados encontrada, haciendo click...")
+                logger.info("Sección Matriculados encontrada, haciendo click...")
                 await self._pause(500, 1_200)
                 await mat_link.click()
                 await self.page.wait_for_load_state("load", timeout=15_000)
@@ -169,7 +169,7 @@ class SISFEScraper:
             ]
             circ_select = await self._find_element(circ_selectors, timeout=5_000)
             if circ_select:
-                <logger.info>(f"Seleccionando circunscripción: {circunscripcion}")
+                logger.info(f"Seleccionando circunscripción: {circunscripcion}")
                 await self._pause(400, 900)
                 await circ_select.select_option(label=circunscripcion)
                 # Esperar a que el dropdown de Colegio se actualice (puede ser dinámico)
@@ -187,7 +187,7 @@ class SISFEScraper:
             ]
             col_select = await self._find_element(col_selectors, timeout=5_000)
             if col_select:
-                <logger.info>(f"Seleccionando colegio: {colegio}")
+                logger.info(f"Seleccionando colegio: {colegio}")
                 await self._pause(400, 900)
                 await col_select.select_option(label=colegio)
                 await self._pause(600, 1_500)
@@ -206,7 +206,7 @@ class SISFEScraper:
             ]
             mat_field = await self._find_element(mat_selectors, timeout=5_000)
             if mat_field:
-                <logger.info>(f"Ingresando matrícula: {matricula}")
+                logger.info(f"Ingresando matrícula: {matricula}")
                 await self._type_human(mat_field, matricula)
             else:
                 logger.error("No se encontró el campo de Matrícula.")
@@ -235,7 +235,7 @@ class SISFEScraper:
             # Verificar resultado
             current_url = self.page.url.lower()
             if "login" not in current_url and "acceso" not in current_url:
-                <logger.info>("Login exitoso")
+                logger.info("Login exitoso")
                 return True
 
             body = await self.page.inner_text("body")
@@ -247,7 +247,7 @@ class SISFEScraper:
                 await self._screenshot("debug_login_failed")
                 return False
 
-            <logger.info>("Login aparentemente exitoso (sin redirección clara)")
+            logger.info("Login aparentemente exitoso (sin redirección clara)")
             return True
 
         except Exception as exc:
@@ -262,10 +262,10 @@ class SISFEScraper:
     async def get_expediente_state(self, codigo: str) -> dict | None:
         search_url = self.config.get(
             "search_url",
-            "<https://sisfe.justiciasantafe.gov.ar/buscar-expediente>",
+            "https://sisfe.justiciasantafe.gov.ar/buscar-expediente",
         )
         try:
-            <logger.info>(f"Consultando expediente {codigo}")
+            logger.info(f"Consultando expediente {codigo}")
             await self._pause(2_000, 5_000)  # pausa antes de cada consulta
             await self.page.goto(search_url, wait_until="load", timeout=60_000)
             await self._pause(800, 2_000)

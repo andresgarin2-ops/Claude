@@ -70,6 +70,25 @@ MOVEMENT_ROW_SELECTORS = [
     'tr:last-child',
 ]
 
+# Selectores para extraer la ubicación actual del expediente
+UBICACION_SELECTORS = [
+    '[class*="ubicac"]',
+    '[class*="ubicacion"]',
+    '[class*="location"]',
+    'td:has(+ td)',  # celda de tabla adyacente a un label
+]
+
+# Textos de label que identifican el campo de ubicación (se busca el elemento siguiente)
+UBICACION_LABELS = [
+    "Ubicación actual",
+    "Ubicacion actual",
+    "Ubicación",
+    "Ubicacion",
+    "Dependencia",
+    "Juzgado",
+    "Organismo",
+]
+
 
 class SISFEScraper:
     def __init__(self, config):
@@ -455,11 +474,13 @@ class SISFEScraper:
             content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
 
             last_movement = await self._extract_last_movement()
+            ubicacion = await self._extract_ubicacion()
 
             return {
                 "hash": content_hash,
                 "content_preview": content[:500],
                 "last_movement": last_movement,
+                "ubicacion": ubicacion,
                 "timestamp": datetime.now().isoformat(),
             }
 
@@ -522,6 +543,42 @@ class SISFEScraper:
                         return text[:300]
             except Exception:
                 continue
+        return None
+
+    async def _extract_ubicacion(self) -> str | None:
+        """Extrae la ubicación actual del expediente buscando labels conocidos o selectores CSS."""
+        # 1) Buscar por texto de label: encuentra el elemento siguiente al label
+        for label_text in UBICACION_LABELS:
+            try:
+                value = await self.page.evaluate(f"""
+                    () => {{
+                        const all = Array.from(document.querySelectorAll('th, td, dt, label, span, div'));
+                        const label = all.find(el => el.innerText.trim() === '{label_text}');
+                        if (!label) return null;
+                        const next = label.nextElementSibling;
+                        if (next) return next.innerText.trim();
+                        const parent = label.parentElement;
+                        if (parent && parent.nextElementSibling)
+                            return parent.nextElementSibling.innerText.trim();
+                        return null;
+                    }}
+                """)
+                if value and value.strip():
+                    return value.strip()[:200]
+            except Exception:
+                continue
+
+        # 2) Fallback: buscar por selectores CSS de clase
+        for selector in UBICACION_SELECTORS:
+            try:
+                element = await self.page.query_selector(selector)
+                if element:
+                    text = (await element.inner_text()).strip()
+                    if text:
+                        return text[:200]
+            except Exception:
+                continue
+
         return None
 
     async def _find_element(self, selectors: list[str], timeout: int = 2_000):

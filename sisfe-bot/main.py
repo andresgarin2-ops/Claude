@@ -73,6 +73,8 @@ def build_mensaje(expediente: dict, state: dict) -> str:
         f"Descripcion: {descripcion}",
         f"Detectado: {timestamp}",
     ]
+    if state.get("ubicacion"):
+        lines.append(f"Ubicacion actual: {state['ubicacion']}")
     if state.get("last_movement"):
         lines.append(f"Ultima actuacion: {state['last_movement']}")
 

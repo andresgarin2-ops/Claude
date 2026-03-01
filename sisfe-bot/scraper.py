@@ -204,6 +204,7 @@ class SISFEScraper:
                 'input[name*="matricul" i]',
                 'input[id*="matricul" i]',
                 'input[placeholder*="matricul" i]',
+                'input[placeholder*="matr" i]',   # cubre "MATRÍCULA" sin cruzar la tilde
                 'input[name*="mat" i]',
                 'input[id*="mat" i]',
                 'input[name="usuario"]',
@@ -214,6 +215,8 @@ class SISFEScraper:
                 'input[type="number"]',
                 'input[type="text"]:visible',
                 'input[type="text"]',
+                # Fallback: primer input que no sea password ni oculto
+                'input:not([type="password"]):not([type="hidden"]):not([type="submit"]):not([type="button"])',
             ]
             mat_field = await self._find_element(mat_selectors, timeout=8_000)
             if mat_field:

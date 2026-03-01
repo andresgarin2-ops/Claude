@@ -51,6 +51,8 @@ SEARCH_SELECTORS = [
 ]
 
 SEARCH_BTN_SELECTORS = [
+    'button:has-text("Realizar búsqueda")',
+    'button:has-text("Realizar busqueda")',
     'button:has-text("Buscar")',
     'button:has-text("Consultar")',
     'button:has-text("Search")',
@@ -364,16 +366,44 @@ class SISFEScraper:
                 await self._screenshot(f"{debug_prefix}_no_field")
                 return None
 
-            # Confirmar búsqueda
-            search_btn = await self._find_element(SEARCH_BTN_SELECTORS, timeout=2_000)
+            # Hacer click en "Realizar búsqueda"
+            await self._pause(400, 800)
+            search_btn = await self._find_element(SEARCH_BTN_SELECTORS, timeout=5_000)
             if search_btn:
                 await search_btn.click()
+                logger.info("Click en botón de búsqueda.")
             else:
                 await self.page.keyboard.press("Enter")
+                logger.info("Búsqueda enviada con Enter (no se encontró botón).")
 
-            await self.page.wait_for_load_state("load", timeout=20_000)
+            # Esperar resultados
+            await self._pause(1_500, 3_000)
+            try:
+                await self.page.wait_for_load_state("load", timeout=20_000)
+            except PlaywrightTimeout:
+                pass
 
-            # Capturar contenido completo para detectar cualquier cambio
+            # Buscar el link con el CUIJ en los resultados y hacer click
+            cuij_link = await self._find_element(
+                [f'a:has-text("{codigo}")', 'table a', 'tbody a'],
+                timeout=8_000,
+            )
+            if cuij_link:
+                logger.info(f"Link del expediente encontrado, haciendo click...")
+                await cuij_link.click()
+                await self._pause(1_000, 2_000)
+                try:
+                    await self.page.wait_for_load_state("load", timeout=20_000)
+                except PlaywrightTimeout:
+                    pass
+            else:
+                logger.warning(
+                    "No se encontró link del expediente en los resultados. "
+                    "Puede que el CUIJ no exista o el formulario no haya buscado correctamente."
+                )
+                await self._screenshot(f"{debug_prefix}_sin_resultado")
+
+            # Capturar contenido de la página (detalle del expediente o resultados)
             content = await self.page.inner_text("body")
             content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
 

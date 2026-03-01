@@ -397,79 +397,42 @@ class SISFEScraper:
 
     async def _fill_search_field(self, codigo: str) -> bool:
         """
-        Llena el formulario de búsqueda con el código CUIJ.
-        Formato esperado: JUR-NUMERO-SUFIJO  (ej: "21-25448313-0")
+        Ingresa el CUIJ completo (ej: "21-25448313-0") en el campo de búsqueda.
+        Solo se llena ese campo; los demás se dejan vacíos.
 
-        Campos conocidos en SISFE (confirmados en producción):
-          - primer campo sin id  → JUR (ej: 21)
-          - id="numeroExpediente" → NUMERO (ej: 25448313)
-          - id="sufijo"           → SUFIJO (ej: 0)
+        El campo CUIJ en SISFE es el primer input de texto sin id asignado.
+        Como fallback se prueba el campo con id="numeroExpediente".
         """
-        skip = {"password", "hidden", "submit", "button", "checkbox", "radio", "file", "image", "date"}
-        partes = codigo.split("-")
+        # 1) Primer input de texto sin id (campo CUIJ confirmado en SISFE)
+        try:
+            all_text_inputs = await self.page.query_selector_all("input[type='text']")
+            for inp in all_text_inputs:
+                inp_id = (await inp.get_attribute("id") or "").strip()
+                if not inp_id and await inp.is_visible():
+                    await inp.fill(codigo)
+                    logger.info(f"CUIJ ingresado en campo sin id: {codigo}")
+                    return True
+        except Exception as exc:
+            logger.warning(f"Error buscando campo CUIJ sin id: {exc}")
 
-        # 1) Intentar con los IDs conocidos de SISFE (más confiable)
-        if len(partes) == 3:
-            jur, numero, sufijo = partes
-            num_field = await self._find_element(['input[id="numeroExpediente"]'], timeout=3_000)
-            suf_field = await self._find_element(['input[id="sufijo"]'], timeout=2_000)
-            if num_field and suf_field:
-                await num_field.fill(numero)
-                await suf_field.fill(sufijo)
-                # Intentar también llenar el campo JUR (primer input sin id conocido)
-                try:
-                    all_inputs = await self.page.query_selector_all("input[type='text']")
-                    for inp in all_inputs:
-                        inp_id = (await inp.get_attribute("id") or "").lower()
-                        if not inp_id and await inp.is_visible():
-                            await inp.fill(jur)
-                            break
-                except Exception:
-                    pass
-                logger.info(f"CUIJ ingresado por IDs: JUR={jur}, NUMERO={numero}, SUFIJO={sufijo}")
-                return True
+        # 2) Fallback: campo con id="numeroExpediente"
+        num_field = await self._find_element(['input[id="numeroExpediente"]'], timeout=3_000)
+        if num_field:
+            await num_field.fill(codigo)
+            logger.info(f"CUIJ ingresado en #numeroExpediente: {codigo}")
+            return True
 
-        # 2) Diagnóstico + fallback: buscar todos los inputs visibles
+        # 3) Diagnóstico
         try:
             inputs_info = await self.page.evaluate("""
                 () => Array.from(document.querySelectorAll('input')).map(i => ({
-                    type: i.type, name: i.name, id: i.id,
-                    placeholder: i.placeholder,
-                    visible: i.offsetParent !== null && i.style.display !== 'none'
+                    type: i.type, id: i.id, visible: i.offsetParent !== null
                 }))
             """)
-            logger.info(f"Inputs en página de búsqueda: {inputs_info}")
-        except Exception as exc:
-            logger.warning(f"No se pudo listar inputs: {exc}")
-
-        visible_inputs = []
-        try:
-            for inp in await self.page.query_selector_all("input"):
-                inp_type = (await inp.get_attribute("type") or "text").lower()
-                if inp_type not in skip and await inp.is_visible():
-                    visible_inputs.append(inp)
-        except Exception as exc:
-            logger.warning(f"Error buscando inputs: {exc}")
-
-        if not visible_inputs:
-            logger.warning("No se encontraron campos de búsqueda.")
-            return False
-
-        logger.info(f"Inputs visibles encontrados via JS: {len(visible_inputs)}")
-
-        if len(visible_inputs) == 1:
-            await visible_inputs[0].fill(codigo)
-            logger.info(f"Código ingresado en campo único: {codigo}")
-            return True
-        elif len(visible_inputs) >= 3 and len(partes) == 3:
-            for idx, parte in enumerate(partes):
-                await visible_inputs[idx].fill(parte)
-            logger.info(f"Código ingresado en {len(partes)} campos separados (posicional).")
-            return True
-        else:
-            await visible_inputs[0].fill(codigo)
-            logger.info(f"Código ingresado en primer campo disponible: {codigo}")
-            return True
+            logger.warning(f"No se encontró campo CUIJ. Inputs en página: {inputs_info}")
+        except Exception:
+            logger.warning("No se encontró campo CUIJ y no se pudo obtener diagnóstico.")
+        return False
 
     async def _extract_last_movement(self) -> str | None:
         """Extrae el texto de la última fila de actuaciones si existe tabla."""

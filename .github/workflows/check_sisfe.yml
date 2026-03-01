@@ -2,14 +2,14 @@ name: Check SISFE Expedientes
 
 on:
   schedule:
-    - cron: '0 * * * *'   # Corre cada hora en punto
-  workflow_dispatch:        # Permite lanzarlo manualmente desde GitHub
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   check:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write       # Necesario para commitear state.json
+      contents: write
 
     steps:
       - name: Checkout repo

@@ -36,6 +36,9 @@ SUBMIT_SELECTORS = [
 ]
 
 SEARCH_SELECTORS = [
+    'input[name*="cuij" i]',
+    'input[id*="cuij" i]',
+    'input[placeholder*="cuij" i]',
     'input[placeholder*="expediente" i]',
     'input[name*="expediente" i]',
     'input[name*="numero" i]',
@@ -359,42 +362,76 @@ class SISFEScraper:
 
     async def _fill_search_field(self, codigo: str) -> bool:
         """Intenta llenar el campo de búsqueda con el código del expediente."""
+        skip = {"password", "hidden", "submit", "button", "checkbox", "radio", "file", "image"}
+        partes = codigo.split("-")
 
-        # 1) Intentar campo único que acepte el código completo
+        # 1) Intentar con CSS selectors rápidos
         field = await self._find_element(SEARCH_SELECTORS, timeout=2_000)
         if field:
             await field.fill(codigo)
+            logger.info(f"Código ingresado via selector CSS: {codigo}")
             return True
 
-        # 2) Intentar campos separados por el separador '-'
-        # Formato esperado: "21-02343434-2"
-        partes = codigo.split("-")
-        if len(partes) == 3:
-            prefijo, numero, sufijo = partes
-            filled_count = 0
-            for value, name_hint in [
-                (prefijo, "jur"),
-                (numero, "num"),
-                (sufijo, "suf"),
-            ]:
-                partial_selectors = [
-                    f'input[name*="{name_hint}" i]',
-                    f'input[placeholder*="{name_hint}" i]',
-                ]
-                f = await self._find_element(partial_selectors, timeout=1_000)
-                if f:
-                    await f.fill(value)
-                    filled_count += 1
+        # 2) Diagnóstico: listar inputs de la página
+        try:
+            inputs_info = await self.page.evaluate("""
+                () => Array.from(document.querySelectorAll('input')).map(i => ({
+                    type: i.type, name: i.name, id: i.id,
+                    placeholder: i.placeholder,
+                    visible: i.offsetParent !== null && i.style.display !== 'none'
+                }))
+            """)
+            logger.info(f"Inputs en página de búsqueda: {inputs_info}")
+        except Exception as exc:
+            logger.warning(f"No se pudo listar inputs: {exc}")
 
-            if filled_count > 0:
-                return True
+        # 3) Fallback: recopilar todos los inputs visibles (página + iframes)
+        visible_inputs = []
+        try:
+            for inp in await self.page.query_selector_all("input"):
+                inp_type = (await inp.get_attribute("type") or "text").lower()
+                if inp_type not in skip and await inp.is_visible():
+                    visible_inputs.append(inp)
+        except Exception as exc:
+            logger.warning(f"Error buscando inputs en página principal: {exc}")
 
-        logger.warning(
-            "No se encontraron campos de búsqueda; "
-            "es posible que la UI del SISFE haya cambiado. "
-            "Revisá debug_*.png para más detalles."
-        )
-        return False
+        for i, frame in enumerate(self.page.frames):
+            if frame == self.page.main_frame:
+                continue
+            try:
+                for inp in await frame.query_selector_all("input"):
+                    inp_type = (await inp.get_attribute("type") or "text").lower()
+                    if inp_type not in skip and await inp.is_visible():
+                        visible_inputs.append(inp)
+            except Exception:
+                pass
+
+        if not visible_inputs:
+            logger.warning(
+                "No se encontraron campos de búsqueda; "
+                "es posible que la UI del SISFE haya cambiado. "
+                "Revisá debug_*.png para más detalles."
+            )
+            return False
+
+        logger.info(f"Inputs visibles encontrados via JS: {len(visible_inputs)}")
+
+        if len(visible_inputs) == 1:
+            # Un solo campo: ingresar el código completo
+            await visible_inputs[0].fill(codigo)
+            logger.info(f"Código ingresado en campo único: {codigo}")
+            return True
+        elif len(visible_inputs) >= 3 and len(partes) == 3:
+            # Tres o más campos: distribuir partes JUR-NUMERO-SUFIJO
+            for idx, parte in enumerate(partes):
+                await visible_inputs[idx].fill(parte)
+            logger.info(f"Código ingresado en {len(partes)} campos separados.")
+            return True
+        else:
+            # Varios campos pero no coincide: usar el primero
+            await visible_inputs[0].fill(codigo)
+            logger.info(f"Código ingresado en primer campo disponible: {codigo}")
+            return True
 
     async def _extract_last_movement(self) -> str | None:
         """Extrae el texto de la última fila de actuaciones si existe tabla."""

@@ -411,43 +411,51 @@ class SISFEScraper:
 
     async def _find_matricula_field(self):
         """
-        Busca el campo de matrícula con dos estrategias:
-        1. Selectores CSS (timeout corto por selector).
-        2. Fallback JS: recorre todos los <input> visibles y devuelve
-           el primero que no sea password/hidden/submit/button.
-        Esto cubre inputs de Angular que no tienen atributo type explícito.
+        Busca el campo de matrícula en la página principal y en todos los iframes.
+        Loguea información de diagnóstico para facilitar el debugging.
         """
-        css_selectors = [
-            'input[name*="matricul" i]',
-            'input[id*="matricul" i]',
-            'input[placeholder*="matricul" i]',
-            'input[placeholder*="matr" i]',
-            'input[name*="mat" i]',
-            'input[id*="mat" i]',
-            'input[name="usuario"]',
-            'input[name="username"]',
-            'input[name="nro"]',
-            'input[type="number"]',
-            'input[type="text"]',
-            'input:not([type])',   # Angular: inputs sin atributo type
-            'input:not([type="password"]):not([type="hidden"]):not([type="submit"]):not([type="button"])',
-        ]
-        field = await self._find_element(css_selectors, timeout=3_000)
-        if field:
-            return field
+        skip = {"password", "hidden", "submit", "button", "checkbox", "radio", "file", "image"}
 
-        # Fallback: JS enumera todos los inputs de la página
-        logger.info("CSS selectors fallaron, usando JS para encontrar el campo...")
+        # ── Diagnóstico: listar todos los inputs de la página principal ───
         try:
-            inputs = await self.page.query_selector_all("input")
-            skip = {"password", "hidden", "submit", "button", "checkbox", "radio", "file", "image"}
-            for inp in inputs:
+            inputs_info = await self.page.evaluate("""
+                () => Array.from(document.querySelectorAll('input')).map(i => ({
+                    type: i.type, name: i.name, id: i.id,
+                    placeholder: i.placeholder,
+                    visible: i.offsetParent !== null && i.style.display !== 'none'
+                }))
+            """)
+            logger.info(f"Inputs en página principal: {inputs_info}")
+        except Exception as exc:
+            logger.warning(f"No se pudo listar inputs: {exc}")
+
+        frames = self.page.frames
+        logger.info(f"Frames detectados: {len(frames)} — URLs: {[f.url for f in frames]}")
+
+        # ── Buscar en página principal ────────────────────────────────────
+        try:
+            for inp in await self.page.query_selector_all("input"):
                 inp_type = (await inp.get_attribute("type") or "text").lower()
                 if inp_type not in skip and await inp.is_visible():
-                    logger.info(f"Campo encontrado via JS (type='{inp_type}')")
+                    logger.info(f"Campo en página principal (type='{inp_type}')")
                     return inp
         except Exception as exc:
-            logger.warning(f"JS fallback falló: {exc}")
+            logger.warning(f"Error buscando en página principal: {exc}")
+
+        # ── Buscar dentro de cada iframe ──────────────────────────────────
+        for i, frame in enumerate(frames):
+            if frame == self.page.main_frame:
+                continue
+            try:
+                logger.info(f"Buscando en frame {i}: {frame.url}")
+                for inp in await frame.query_selector_all("input"):
+                    inp_type = (await inp.get_attribute("type") or "text").lower()
+                    if inp_type not in skip and await inp.is_visible():
+                        logger.info(f"Campo en frame {i} (type='{inp_type}')")
+                        return inp
+            except Exception as exc:
+                logger.warning(f"Error en frame {i}: {exc}")
+
         return None
 
     async def _save_cookies(self):

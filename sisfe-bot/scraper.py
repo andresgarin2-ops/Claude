@@ -158,12 +158,21 @@ class SISFEScraper:
         if self._cookies_path.exists():
             try:
                 await self.page.goto(search_url, wait_until="load", timeout=20_000)
-                # Sesión válida solo si efectivamente aterrizamos en el buscador
-                if "buscar-expediente" in self.page.url:
+                # Esperar que Angular renderice (SPA: URL puede ser correcta pero
+                # contenido puede ser la página de inicio si la sesión expiró)
+                await self.page.wait_for_timeout(3_000)
+                body = await self.page.inner_text("body")
+                session_ok = (
+                    "buscar-expediente" in self.page.url
+                    and "SELECCIONE UNA OPCIÓN" not in body.upper()
+                    and "INGRESO AL SISTEMA" not in body.upper()
+                )
+                if session_ok:
                     logger.info("Sesión previa válida — login omitido.")
                     return True
                 logger.info(
-                    f"Sesión expirada (redirigido a {self.page.url}), se rehace el login..."
+                    "Sesión expirada (página de inicio detectada en Angular SPA), "
+                    "se rehace el login..."
                 )
                 self._cookies_path.unlink()
             except Exception:
@@ -323,24 +332,30 @@ class SISFEScraper:
             await self._pause(2_000, 5_000)  # pausa antes de cada consulta
             await self.page.goto(search_url, wait_until="load", timeout=60_000)
 
-            # Verificar que estamos en el buscador (sesión puede haber expirado)
-            if "buscar-expediente" not in self.page.url:
-                logger.error(
-                    f"Redirigido a {self.page.url} — sesión expirada durante la consulta. "
-                    "Borrá sisfe_cookies.json y volvé a correr el bot para reloguear."
-                )
-                self._cookies_path.unlink(missing_ok=True)
-                return None
-
-            # Esperar a que Angular renderice el formulario
+            # Esperar que Angular renderice (SPA: URL puede ser correcta pero
+            # contenido varía según estado de sesión)
             try:
                 await self.page.wait_for_selector(
                     "input, select, mat-select",
-                    timeout=15_000,
+                    timeout=12_000,
                 )
             except PlaywrightTimeout:
-                logger.warning("Formulario tardó más de 15s en renderizar; intentando de todas formas.")
+                pass  # Verificamos el contenido de todas formas
             await self._pause(800, 1_500)
+
+            # Verificar que el formulario de búsqueda está presente
+            body = await self.page.inner_text("body")
+            if (
+                "buscar-expediente" not in self.page.url
+                or "SELECCIONE UNA OPCIÓN" in body.upper()
+                or "INGRESO AL SISTEMA" in body.upper()
+            ):
+                logger.error(
+                    "Sesión expirada — el SISFE muestra la página de inicio en lugar "
+                    "del buscador. Borrá sisfe_cookies.json y volvé a correr el bot."
+                )
+                self._cookies_path.unlink(missing_ok=True)
+                return None
 
             filled = await self._fill_search_field(codigo)
             if not filled:

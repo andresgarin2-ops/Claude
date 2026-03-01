@@ -1,35 +1,29 @@
 # ============================================================
 # Configuración del bot SISFE
 # ============================================================
-# IMPORTANTE: No subas este archivo a Git con tus credenciales reales.
-# Podés copiar este archivo a config.local.yaml (excluido del repo).
+# Las credenciales (usuario, contraseña, tokens) se cargan desde
+# variables de entorno / GitHub Secrets. NO las pongas aquí.
 
 sisfe:
-  login_url: "https://sisfe.justiciasantafe.gov.ar"          # URL de login (ajustar si cambia)
+  login_url: "https://sisfe.justiciasantafe.gov.ar"
   search_url: "https://sisfe.justiciasantafe.gov.ar/buscar-expediente"
-  username: "TU_USUARIO_SISFE"      # <-- completar
-  password: "TU_CONTRASENA_SISFE"   # <-- completar
+  # username → env: SISFE_USERNAME
+  # password → env: SISFE_PASSWORD
 
 # Lista de expedientes a monitorear
-# Formato del código: "JUR-NUMERO-SUFIJO" (ej: "21-02343434-2")
+# Formato: JUR-NUMERO-SUFIJO (ej: "21-02343434-2")
 expedientes:
-  - codigo: "21-02343434-2"
-    descripcion: "Caso ejemplo 1"
-  - codigo: "21-09876543-1"
-    descripcion: "Caso ejemplo 2"
-  # Podés agregar todos los que quieras:
+  - codigo: "AGREGAR-EXPEDIENTE-1"
+    descripcion: "Descripción del expediente 1"
+  # Agregá más expedientes acá:
   # - codigo: "21-XXXXXXXX-X"
-  #   descripcion: "Descripción del expediente"
+  #   descripcion: "Mi expediente"
 
-whatsapp:
-  service_url: "http://localhost:3000/send"   # No cambiar salvo que uses otro puerto
-  destinatarios:
-    - "+5493412345678"    # <-- Tu número con código de país (sin espacios ni guiones)
-    # Podés agregar más números:
-    # - "+5493411234567"
+twilio:
+  from_number: "whatsapp:+14155238886"
+  to_number: "whatsapp:+5493415154942"
+  # account_sid → env: TWILIO_ACCOUNT_SID
+  # auth_token  → env: TWILIO_AUTH_TOKEN
 
-scheduler:
-  intervalo_minutos: 30    # Con qué frecuencia revisar el SISFE
-
-database:
-  path: "sisfe_bot.db"     # Archivo SQLite donde se guarda el estado
+# Archivo JSON donde se persiste el estado (se commitea al repo)
+state_file: "state.json"

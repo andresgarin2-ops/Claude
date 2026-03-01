@@ -1,95 +1,70 @@
-# Bot SISFE - Guía de instalación
+# Bot SISFE - Guía de instalación (GitHub Actions + Twilio)
 
-## Requisitos
+## Cómo funciona
 
-- Python 3.11+
-- Node.js 18+
-- npm
+1. GitHub Actions corre el bot **automáticamente cada hora**.
+2. El bot abre un Chromium invisible, hace login en SISFE y consulta cada expediente.
+3. Compara el contenido actual con el guardado en `state.json`.
+4. Si hay un cambio → manda un **WhatsApp vía Twilio**.
+5. `state.json` se commitea automáticamente al repo con el estado actualizado.
 
 ---
 
-## Instalación
+## Configuración (una sola vez)
 
-### 1. Dependencias Python
+### 1. Agregar los expedientes a monitorear
+
+Editá `config.yaml` y reemplazá los valores de ejemplo:
+
+```yaml
+expedientes:
+  - codigo: "21-02343434-2"   # ← tu número de expediente
+    descripcion: "Mi expediente"
+```
+
+> El formato es `JUR-NUMERO-SUFIJO`. Si no sabés el formato exacto, consultá la URL
+> que usa el SISFE cuando lo buscás manualmente.
+
+### 2. Configurar los secretos en GitHub
+
+En tu repositorio: **Settings → Secrets and variables → Actions → New repository secret**
+
+| Secreto | Valor |
+|---|---|
+| `SISFE_USERNAME` | Tu usuario del SISFE |
+| `SISFE_PASSWORD` | Tu contraseña del SISFE |
+| `TWILIO_ACCOUNT_SID` | Account SID de Twilio |
+| `TWILIO_AUTH_TOKEN` | Auth Token de Twilio |
+
+### 3. Activar el sandbox de Twilio WhatsApp
+
+Antes de que puedas recibir mensajes, tenés que unirte al sandbox:
+
+1. En tu WhatsApp, mandá un mensaje a **+1 415 523 8886**
+2. El mensaje debe ser: `join <palabra-del-sandbox>`
+   (la palabra la encontrás en Twilio Console → Messaging → Try it out → Send a WhatsApp message)
+
+---
+
+## Ejecutar manualmente
+
+En GitHub: **Actions → Check SISFE Expedientes → Run workflow**
+
+---
+
+## Ejecutar en local (para probar)
 
 ```bash
 cd sisfe-bot
 pip install -r requirements.txt
 playwright install chromium
-```
 
-### 2. Dependencias Node.js (servicio WhatsApp)
-
-```bash
-cd whatsapp_service
-npm install
-```
-
----
-
-## Configuración
-
-Editá `config.yaml` con tus datos:
-
-```yaml
-sisfe:
-  username: "tu_usuario"
-  password: "tu_contraseña"
-
-expedientes:
-  - codigo: "21-02343434-2"
-    descripcion: "Mi expediente"
-
-whatsapp:
-  destinatarios:
-    - "+5493412345678"   # tu número con código de país
-```
-
----
-
-## Uso
-
-Necesitás dos terminales:
-
-### Terminal 1 - Servicio WhatsApp
-
-```bash
-cd whatsapp_service
-node server.js
-```
-
-La primera vez imprime un QR. **Escanealo con WhatsApp** (igual que WhatsApp Web).
-La sesión queda guardada; no hace falta escanear de nuevo.
-
-### Terminal 2 - Bot principal
-
-```bash
-cd sisfe-bot
+SISFE_USERNAME="tu_usuario" \
+SISFE_PASSWORD="tu_contraseña" \
+TWILIO_ACCOUNT_SID="ACxxxxx" \
+TWILIO_AUTH_TOKEN="xxxxx" \
 python main.py
 ```
-
-El bot se ejecuta cada 30 minutos (configurable en `config.yaml`).
-
-### Probar una sola consulta
-
-```bash
-python main.py --once
-```
-
----
-
-## Cómo funciona
-
-1. El bot abre un navegador Chromium invisible.
-2. Hace login en el SISFE con tu usuario/contraseña.
-3. Consulta cada expediente de la lista.
-4. Compara el contenido actual con el guardado en `sisfe_bot.db`.
-5. Si hay diferencias → manda un WhatsApp a los números configurados.
-
-### Primera ejecución
-
-En la primera ejecución **no se envía ninguna notificación**: solo se guarda
-el estado inicial. A partir de la segunda, cualquier cambio dispara la alerta.
 
 ---
 
@@ -97,7 +72,7 @@ el estado inicial. A partir de la segunda, cualquier cambio dispara la alerta.
 
 | Problema | Solución |
 |---|---|
-| Error de login | Revisá usuario/contraseña. Se guarda un screenshot `debug_login_failed.png` |
-| No encuentra campos | La UI del SISFE puede haber cambiado. Revisá `debug_*.png` |
-| WhatsApp no conecta | Asegurate de haber escaneado el QR en el paso de la Terminal 1 |
-| Errores de red | El bot reintenta automáticamente en la próxima ejecución programada |
+| Error de login | Revisá `SISFE_USERNAME` y `SISFE_PASSWORD` en los secrets |
+| No encuentra campos | La UI del SISFE puede haber cambiado. Revisá `debug_*.png` en los artefactos del Action |
+| WhatsApp no llega | Verificá que te hayas unido al sandbox de Twilio |
+| `state.json` no se commitea | Verificá que el workflow tenga `permissions: contents: write` |

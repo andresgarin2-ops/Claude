@@ -1,56 +1,29 @@
 """
-Notificador de WhatsApp.
-Llama al servicio Node.js (whatsapp_service/server.js) que mantiene
-la sesión de WhatsApp Web abierta.
+Notificador WhatsApp vía Twilio.
+Reemplaza el servicio Node.js anterior (WhatsApp Web) por la API de Twilio.
 """
 
 import logging
-import aiohttp
+from twilio.rest import Client
 
 logger = logging.getLogger(__name__)
 
 
 class WhatsAppNotifier:
     def __init__(self, config: dict):
-        self.service_url = config.get("service_url", "http://localhost:3000/send")
-        self.destinatarios: list[str] = config.get("destinatarios", [])
+        self.client = Client(config["account_sid"], config["auth_token"])
+        self.from_number = config["from_number"]  # "whatsapp:+14155238886"
+        self.to_number = config["to_number"]       # "whatsapp:+5493415154942"
 
     async def send(self, mensaje: str):
-        """Envía un mensaje a todos los destinatarios configurados."""
-        for numero in self.destinatarios:
-            await self._send_one(numero, mensaje)
-
-    async def _send_one(self, numero: str, mensaje: str):
+        """Envía el mensaje vía Twilio WhatsApp Sandbox."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.service_url,
-                    json={"to": numero, "message": mensaje},
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    if resp.status == 200:
-                        logger.info(f"Mensaje enviado a {numero}")
-                    else:
-                        body = await resp.text()
-                        logger.error(
-                            f"Error al enviar a {numero}: HTTP {resp.status} - {body}"
-                        )
-        except aiohttp.ClientConnectorError:
-            logger.error(
-                "No se pudo conectar al servicio WhatsApp. "
-                "Asegurate de que 'whatsapp_service/server.js' esté corriendo."
+            message = self.client.messages.create(
+                from_=self.from_number,
+                body=mensaje,
+                to=self.to_number,
             )
+            logger.info(f"WhatsApp enviado correctamente. SID: {message.sid}")
         except Exception as exc:
-            logger.error(f"Excepción enviando WhatsApp a {numero}: {exc}")
-
-    async def is_service_up(self) -> bool:
-        """Verifica si el servicio de WhatsApp está activo."""
-        health_url = self.service_url.replace("/send", "/health")
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    health_url, timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    return resp.status == 200
-        except Exception:
-            return False
+            logger.error(f"Error enviando WhatsApp vía Twilio: {exc}")
+            raise

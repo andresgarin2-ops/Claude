@@ -13,6 +13,10 @@ sisfe:
   # matricula → env: SISFE_MATRICULA
   # password  → env: SISFE_PASSWORD
 
+  # Intervalos del modo daemon (ejecución continua local)
+  check_interval_minutes: 30      # cada cuánto verificar expedientes
+  keepalive_interval_minutes: 12  # cada cuánto refrescar la sesión para no ser deslogueado
+
 # Lista de expedientes a monitorear
 # Formato: JUR-NUMERO-SUFIJO (ej: "21-02343434-2")
 # sede: (opcional) localidad que se selecciona en el formulario de búsqueda

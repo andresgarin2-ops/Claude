@@ -79,7 +79,49 @@ def build_mensaje(expediente: dict, state: dict) -> str:
     return "\n".join(lines)
 
 
-async def check_expedientes(config: dict):
+async def _check_all(scraper, config: dict, store: "StateStore", notifier: "WhatsAppNotifier"):
+    """Verifica todos los expedientes y envía notificaciones si hay cambios."""
+    for i, exp in enumerate(config["expedientes"]):
+        if i > 0:
+            espera = random.uniform(8, 15)
+            logger.info(f"Esperando {espera:.1f}s antes del siguiente expediente...")
+            await asyncio.sleep(espera)
+
+        codigo = exp["codigo"]
+        logger.info(f"Procesando expediente: {codigo}")
+
+        state = await scraper.get_expediente_state(codigo)
+        if state is None:
+            logger.warning(f"No se pudo obtener estado de {codigo}, se omite.")
+            continue
+
+        prev = store.get_last_state(codigo)
+
+        if prev is None:
+            store.save_state(codigo, state)
+            logger.info(
+                f"[{codigo}] Estado inicial registrado. "
+                "No se envía notificación (sin estado previo para comparar)."
+            )
+        elif prev["hash"] != state["hash"]:
+            logger.info(f"[{codigo}] *** CAMBIO DETECTADO ***")
+            store.save_state(codigo, state)
+            mensaje = build_mensaje(exp, state)
+            await notifier.send(mensaje)
+        else:
+            logger.info(f"[{codigo}] Sin cambios.")
+
+
+async def run_daemon(config: dict):
+    """
+    Modo daemon: mantiene el browser abierto indefinidamente.
+    - Verifica expedientes cada `check_interval_minutes` (default 30).
+    - Hace keep-alive cada `keepalive_interval_minutes` (default 12) para
+      que el servidor no cierre la sesión por inactividad.
+    """
+    check_interval = int(config["sisfe"].get("check_interval_minutes", 30)) * 60
+    keepalive_interval = int(config["sisfe"].get("keepalive_interval_minutes", 12)) * 60
+
     state_path = Path(__file__).parent / config.get("state_file", "state.json")
     store = StateStore(str(state_path))
     notifier = WhatsAppNotifier(config["twilio"])
@@ -93,37 +135,39 @@ async def check_expedientes(config: dict):
             )
             sys.exit(1)
 
-        for i, exp in enumerate(config["expedientes"]):
-            if i > 0:
-                espera = random.uniform(8, 15)
-                logger.info(f"Esperando {espera:.1f}s antes del siguiente expediente...")
-                await asyncio.sleep(espera)
+        # Lock para que keep-alive y scraper no accedan a la página al mismo tiempo
+        lock = asyncio.Lock()
 
-            codigo = exp["codigo"]
-            logger.info(f"Procesando expediente: {codigo}")
+        async def keepalive_loop():
+            while True:
+                await asyncio.sleep(keepalive_interval)
+                async with lock:
+                    await scraper.keep_alive()
 
-            state = await scraper.get_expediente_state(codigo)
-            if state is None:
-                logger.warning(f"No se pudo obtener estado de {codigo}, se omite.")
-                continue
+        keepalive_task = asyncio.create_task(keepalive_loop())
+        logger.info(
+            f"Daemon iniciado — verificación cada {check_interval // 60} min, "
+            f"keep-alive cada {keepalive_interval // 60} min. "
+            "Presioná Ctrl+C para detener."
+        )
 
-            prev = store.get_last_state(codigo)
-
-            if prev is None:
-                store.save_state(codigo, state)
+        try:
+            while True:
+                async with lock:
+                    await _check_all(scraper, config, store, notifier)
                 logger.info(
-                    f"[{codigo}] Estado inicial registrado. "
-                    "No se envía notificación (sin estado previo para comparar)."
+                    f"Próxima verificación en {check_interval // 60} minutos."
                 )
-            elif prev["hash"] != state["hash"]:
-                logger.info(f"[{codigo}] *** CAMBIO DETECTADO ***")
-                store.save_state(codigo, state)
-                mensaje = build_mensaje(exp, state)
-                await notifier.send(mensaje)
-            else:
-                logger.info(f"[{codigo}] Sin cambios.")
+                await asyncio.sleep(check_interval)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            keepalive_task.cancel()
 
 
 if __name__ == "__main__":
     config = load_config()
-    asyncio.run(check_expedientes(config))
+    try:
+        asyncio.run(run_daemon(config))
+    except KeyboardInterrupt:
+        logger.info("Bot detenido por el usuario.")

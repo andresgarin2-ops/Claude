@@ -683,6 +683,21 @@ class SISFEScraper:
 
         return None
 
+    async def keep_alive(self):
+        """
+        Visita la página de búsqueda para mantener la sesión activa.
+        Llamar cada 10-15 minutos cuando el bot está en espera entre verificaciones.
+        """
+        search_url = self.config.get(
+            "search_url",
+            "https://sisfe.justiciasantafe.gov.ar/buscar-expediente",
+        )
+        try:
+            await self.page.goto(search_url, wait_until="load", timeout=20_000)
+            logger.info("Keep-alive: sesión refrescada.")
+        except Exception as exc:
+            logger.warning(f"Keep-alive falló (se reintentará en el próximo ciclo): {exc}")
+
     async def _save_cookies(self):
         """Guarda las cookies de sesión actuales en disco."""
         cookies = await self._context.cookies()

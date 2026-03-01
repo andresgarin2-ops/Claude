@@ -1,0 +1,21 @@
+# Credenciales reales (nunca subir al repo)
+config.local.yaml
+
+# Base de datos
+*.db
+
+# Sesión de WhatsApp (contiene tokens de autenticación)
+.wwebjs_auth/
+
+# Dependencias
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# Logs y screenshots de debug
+*.log
+debug_*.png
+
+# Chromium descargado por Playwright
+.playwright/

@@ -1,0 +1,274 @@
+"""
+SISFE Scraper - Automatización de consulta de expedientes judiciales de Santa Fe
+Usa Playwright para controlar un navegador real y evadir protecciones anti-bot.
+"""
+
+import hashlib
+import logging
+from datetime import datetime
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+
+logger = logging.getLogger(__name__)
+
+# Selectores posibles para campos de login (se prueban en orden)
+USER_SELECTORS = [
+    'input[name="username"]',
+    'input[name="usuario"]',
+    'input[name="user"]',
+    'input[name="login"]',
+    'input[type="email"]',
+    'input[placeholder*="usuario" i]',
+    'input[placeholder*="user" i]',
+    'input[placeholder*="email" i]',
+]
+
+SUBMIT_SELECTORS = [
+    'button[type="submit"]',
+    'input[type="submit"]',
+    'button:has-text("Ingresar")',
+    'button:has-text("Acceder")',
+    'button:has-text("Login")',
+    'button:has-text("Iniciar")',
+]
+
+SEARCH_SELECTORS = [
+    'input[placeholder*="expediente" i]',
+    'input[name*="expediente" i]',
+    'input[name*="numero" i]',
+    'input[placeholder*="número" i]',
+    'input[placeholder*="numero" i]',
+    'input[type="search"]',
+    'input[name="nro"]',
+    'input[name="number"]',
+]
+
+SEARCH_BTN_SELECTORS = [
+    'button:has-text("Buscar")',
+    'button:has-text("Consultar")',
+    'button:has-text("Search")',
+    'button[type="submit"]',
+    'input[type="submit"]',
+]
+
+# Selectores para extraer el último movimiento de una tabla
+MOVEMENT_ROW_SELECTORS = [
+    'table tbody tr:last-child',
+    '.actuacion:last-child',
+    '.movimiento:last-child',
+    '[class*="actuac"]:last-child',
+    '[class*="movim"]:last-child',
+    'tr:last-child',
+]
+
+
+class SISFEScraper:
+    def __init__(self, config):
+        self.config = config
+        self._playwright = None
+        self._browser = None
+        self.page = None
+
+    async def __aenter__(self):
+        self._playwright = await async_playwright().start()
+        self._browser = await self._playwright.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox"],
+        )
+        context = await self._browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent=(
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        )
+        self.page = await context.new_page()
+        return self
+
+    async def __aexit__(self, *args):
+        if self._browser:
+            await self._browser.close()
+        if self._playwright:
+            await self._playwright.stop()
+
+    # ------------------------------------------------------------------
+    # Login
+    # ------------------------------------------------------------------
+
+    async def login(self) -> bool:
+        login_url = self.config.get(
+            "login_url", "https://sisfe.justiciasantafe.gov.ar"
+        )
+        try:
+            logger.info(f"Navegando a {login_url}")
+            await self.page.goto(login_url, wait_until="networkidle", timeout=30_000)
+
+            # Buscar campo de usuario
+            user_field = await self._find_element(USER_SELECTORS, timeout=3_000)
+            if not user_field:
+                logger.error("No se encontró campo de usuario en la página de login")
+                await self._screenshot("debug_login_no_user_field")
+                return False
+
+            await user_field.fill(self.config["username"])
+
+            # Buscar campo de contraseña
+            pass_field = await self.page.wait_for_selector(
+                'input[type="password"]', timeout=5_000
+            )
+            await pass_field.fill(self.config["password"])
+
+            # Click en submit
+            submit = await self._find_element(SUBMIT_SELECTORS, timeout=3_000)
+            if submit:
+                await submit.click()
+            else:
+                await self.page.keyboard.press("Enter")
+
+            await self.page.wait_for_load_state("networkidle", timeout=20_000)
+
+            # Heurística de éxito: la URL ya no contiene "login"
+            if "login" not in self.page.url.lower():
+                logger.info("Login exitoso")
+                return True
+
+            # Verificar mensaje de error en la página
+            body = await self.page.inner_text("body")
+            if any(
+                kw in body.lower()
+                for kw in ["credenciales", "contraseña incorrecta", "error", "invalid"]
+            ):
+                logger.error("Login falló: credenciales incorrectas")
+                await self._screenshot("debug_login_failed")
+                return False
+
+            logger.info("Login aparentemente exitoso (sin redirección clara)")
+            return True
+
+        except Exception as exc:
+            logger.error(f"Excepción durante login: {exc}")
+            await self._screenshot("debug_login_exception")
+            return False
+
+    # ------------------------------------------------------------------
+    # Consulta de expediente
+    # ------------------------------------------------------------------
+
+    async def get_expediente_state(self, codigo: str) -> dict | None:
+        search_url = self.config.get(
+            "search_url",
+            "https://sisfe.justiciasantafe.gov.ar/buscar-expediente",
+        )
+        try:
+            logger.info(f"Consultando expediente {codigo}")
+            await self.page.goto(search_url, wait_until="networkidle", timeout=30_000)
+
+            filled = await self._fill_search_field(codigo)
+            if not filled:
+                logger.error(f"No se pudo ingresar el código {codigo}")
+                await self._screenshot(f"debug_{codigo.replace('-', '_')}_no_field")
+                return None
+
+            # Confirmar búsqueda
+            search_btn = await self._find_element(SEARCH_BTN_SELECTORS, timeout=2_000)
+            if search_btn:
+                await search_btn.click()
+            else:
+                await self.page.keyboard.press("Enter")
+
+            await self.page.wait_for_load_state("networkidle", timeout=20_000)
+
+            # Capturar contenido completo para detectar cualquier cambio
+            content = await self.page.inner_text("body")
+            content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
+
+            last_movement = await self._extract_last_movement()
+
+            return {
+                "hash": content_hash,
+                "content_preview": content[:500],
+                "last_movement": last_movement,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        except Exception as exc:
+            logger.error(f"Excepción consultando {codigo}: {exc}")
+            await self._screenshot(f"debug_{codigo.replace('-', '_')}_exception")
+            return None
+
+    # ------------------------------------------------------------------
+    # Helpers privados
+    # ------------------------------------------------------------------
+
+    async def _fill_search_field(self, codigo: str) -> bool:
+        """Intenta llenar el campo de búsqueda con el código del expediente."""
+
+        # 1) Intentar campo único que acepte el código completo
+        field = await self._find_element(SEARCH_SELECTORS, timeout=2_000)
+        if field:
+            await field.fill(codigo)
+            return True
+
+        # 2) Intentar campos separados por el separador '-'
+        # Formato esperado: "21-02343434-2"
+        partes = codigo.split("-")
+        if len(partes) == 3:
+            prefijo, numero, sufijo = partes
+            filled_count = 0
+            for value, name_hint in [
+                (prefijo, "jur"),
+                (numero, "num"),
+                (sufijo, "suf"),
+            ]:
+                partial_selectors = [
+                    f'input[name*="{name_hint}" i]',
+                    f'input[placeholder*="{name_hint}" i]',
+                ]
+                f = await self._find_element(partial_selectors, timeout=1_000)
+                if f:
+                    await f.fill(value)
+                    filled_count += 1
+
+            if filled_count > 0:
+                return True
+
+        logger.warning(
+            "No se encontraron campos de búsqueda; "
+            "es posible que la UI del SISFE haya cambiado. "
+            "Revisá debug_*.png para más detalles."
+        )
+        return False
+
+    async def _extract_last_movement(self) -> str | None:
+        """Extrae el texto de la última fila de actuaciones si existe tabla."""
+        for selector in MOVEMENT_ROW_SELECTORS:
+            try:
+                element = await self.page.query_selector(selector)
+                if element:
+                    text = (await element.inner_text()).strip()
+                    if text:
+                        return text[:300]
+            except Exception:
+                continue
+        return None
+
+    async def _find_element(self, selectors: list[str], timeout: int = 2_000):
+        """Prueba selectores en orden y devuelve el primero que encuentre."""
+        for selector in selectors:
+            try:
+                element = await self.page.wait_for_selector(
+                    selector, timeout=timeout
+                )
+                if element:
+                    return element
+            except PlaywrightTimeout:
+                continue
+        return None
+
+    async def _screenshot(self, name: str):
+        try:
+            path = f"{name}.png"
+            await self.page.screenshot(path=path)
+            logger.debug(f"Screenshot guardado: {path}")
+        except Exception:
+            pass

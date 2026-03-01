@@ -1,0 +1,35 @@
+# ============================================================
+# Configuración del bot SISFE
+# ============================================================
+# IMPORTANTE: No subas este archivo a Git con tus credenciales reales.
+# Podés copiar este archivo a config.local.yaml (excluido del repo).
+
+sisfe:
+  login_url: "https://sisfe.justiciasantafe.gov.ar"          # URL de login (ajustar si cambia)
+  search_url: "https://sisfe.justiciasantafe.gov.ar/buscar-expediente"
+  username: "TU_USUARIO_SISFE"      # <-- completar
+  password: "TU_CONTRASENA_SISFE"   # <-- completar
+
+# Lista de expedientes a monitorear
+# Formato del código: "JUR-NUMERO-SUFIJO" (ej: "21-02343434-2")
+expedientes:
+  - codigo: "21-02343434-2"
+    descripcion: "Caso ejemplo 1"
+  - codigo: "21-09876543-1"
+    descripcion: "Caso ejemplo 2"
+  # Podés agregar todos los que quieras:
+  # - codigo: "21-XXXXXXXX-X"
+  #   descripcion: "Descripción del expediente"
+
+whatsapp:
+  service_url: "http://localhost:3000/send"   # No cambiar salvo que uses otro puerto
+  destinatarios:
+    - "+5493412345678"    # <-- Tu número con código de país (sin espacios ni guiones)
+    # Podés agregar más números:
+    # - "+5493411234567"
+
+scheduler:
+  intervalo_minutos: 30    # Con qué frecuencia revisar el SISFE
+
+database:
+  path: "sisfe_bot.db"     # Archivo SQLite donde se guarda el estado

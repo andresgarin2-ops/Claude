@@ -13,6 +13,7 @@ Uso local (para probar):
 import asyncio
 import logging
 import os
+import random
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -85,7 +86,12 @@ async def check_expedientes(config: dict):
             )
             sys.exit(1)
 
-        for exp in config["expedientes"]:
+        for i, exp in enumerate(config["expedientes"]):
+            if i > 0:
+                espera = random.uniform(8, 15)
+                logger.info(f"Esperando {espera:.1f}s antes del siguiente expediente...")
+                await asyncio.sleep(espera)
+
             codigo = exp["codigo"]
             logger.info(f"Procesando expediente: {codigo}")
 

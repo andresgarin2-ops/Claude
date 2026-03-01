@@ -5,6 +5,7 @@ Usa Playwright para controlar un navegador real y evadir protecciones anti-bot.
 
 import hashlib
 import logging
+import random
 from datetime import datetime
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
@@ -91,6 +92,19 @@ class SISFEScraper:
         if self._playwright:
             await self._playwright.stop()
 
+    async def _pause(self, min_ms: int = 800, max_ms: int = 2500):
+        """Pausa aleatoria para simular comportamiento humano."""
+        ms = random.randint(min_ms, max_ms)
+        await self.page.wait_for_timeout(ms)
+
+    async def _type_human(self, element, text: str):
+        """Tipea carácter a carácter con velocidad humana (40-120 ms por tecla)."""
+        await element.click()
+        await self._pause(200, 500)
+        for char in text:
+            await element.type(char)
+            await self.page.wait_for_timeout(random.randint(40, 120))
+
     # ------------------------------------------------------------------
     # Login
     # ------------------------------------------------------------------
@@ -112,6 +126,7 @@ class SISFEScraper:
         try:
             logger.info(f"Navegando a {login_url}")
             await self.page.goto(login_url, wait_until="networkidle", timeout=30_000)
+            await self._pause(1_000, 2_500)  # pausa inicial como humano
 
             # 1) Buscar y clickear el acceso para "Matriculados"
             matriculados_selectors = [
@@ -124,8 +139,10 @@ class SISFEScraper:
             mat_link = await self._find_element(matriculados_selectors, timeout=5_000)
             if mat_link:
                 logger.info("Sección Matriculados encontrada, haciendo click...")
+                await self._pause(500, 1_200)
                 await mat_link.click()
                 await self.page.wait_for_load_state("networkidle", timeout=15_000)
+                await self._pause(800, 2_000)
             else:
                 logger.warning(
                     "No se encontró el link de Matriculados. "
@@ -145,9 +162,10 @@ class SISFEScraper:
             circ_select = await self._find_element(circ_selectors, timeout=5_000)
             if circ_select:
                 logger.info(f"Seleccionando circunscripción: {circunscripcion}")
+                await self._pause(400, 900)
                 await circ_select.select_option(label=circunscripcion)
                 # Esperar a que el dropdown de Colegio se actualice (puede ser dinámico)
-                await self.page.wait_for_timeout(1_500)
+                await self._pause(1_200, 2_500)
             else:
                 logger.warning("No se encontró el select de Circunscripción.")
                 await self._screenshot("debug_login_no_circ_select")
@@ -162,13 +180,14 @@ class SISFEScraper:
             col_select = await self._find_element(col_selectors, timeout=5_000)
             if col_select:
                 logger.info(f"Seleccionando colegio: {colegio}")
+                await self._pause(400, 900)
                 await col_select.select_option(label=colegio)
-                await self.page.wait_for_timeout(500)
+                await self._pause(600, 1_500)
             else:
                 logger.warning("No se encontró el select de Colegio.")
                 await self._screenshot("debug_login_no_col_select")
 
-            # 4) Ingresar Matrícula
+            # 4) Ingresar Matrícula (tipeo humano)
             mat_selectors = [
                 'input[name*="matricul" i]',
                 'input[name*="mat" i]',
@@ -180,17 +199,21 @@ class SISFEScraper:
             mat_field = await self._find_element(mat_selectors, timeout=5_000)
             if mat_field:
                 logger.info(f"Ingresando matrícula: {matricula}")
-                await mat_field.fill(matricula)
+                await self._type_human(mat_field, matricula)
             else:
                 logger.error("No se encontró el campo de Matrícula.")
                 await self._screenshot("debug_login_no_matricula_field")
                 return False
 
-            # 5) Ingresar Contraseña
+            await self._pause(500, 1_200)
+
+            # 5) Ingresar Contraseña (tipeo humano)
             pass_field = await self.page.wait_for_selector(
                 'input[type="password"]', timeout=5_000
             )
-            await pass_field.fill(password)
+            await self._type_human(pass_field, password)
+
+            await self._pause(800, 2_000)  # pausa antes de enviar
 
             # 6) Submit
             submit = await self._find_element(SUBMIT_SELECTORS, timeout=3_000)
@@ -235,7 +258,9 @@ class SISFEScraper:
         )
         try:
             logger.info(f"Consultando expediente {codigo}")
+            await self._pause(2_000, 5_000)  # pausa antes de cada consulta
             await self.page.goto(search_url, wait_until="networkidle", timeout=30_000)
+            await self._pause(800, 2_000)
 
             filled = await self._fill_search_field(codigo)
             if not filled:

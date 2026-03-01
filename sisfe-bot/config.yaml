@@ -16,8 +16,8 @@ sisfe:
 # Lista de expedientes a monitorear
 # Formato: JUR-NUMERO-SUFIJO (ej: "21-02343434-2")
 expedientes:
-  - codigo: "AGREGAR-EXPEDIENTE-1"
-    descripcion: "Descripción del expediente 1"
+  - codigo: "21-25448313-0"
+    descripcion: "Expediente 21-25448313-0"
   # Agregá más expedientes acá:
   # - codigo: "21-XXXXXXXX-X"
   #   descripcion: "Mi expediente"

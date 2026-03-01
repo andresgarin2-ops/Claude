@@ -190,21 +190,32 @@ class SISFEScraper:
                 logger.info(f"Seleccionando colegio: {colegio}")
                 await self._pause(400, 900)
                 await col_select.select_option(label=colegio)
-                await self._pause(600, 1_500)
+                # Esperar a que el formulario dinámico cargue el campo de matrícula
+                await self.page.wait_for_load_state("networkidle", timeout=10_000)
+                await self._pause(1_500, 3_000)
             else:
                 logger.warning("No se encontró el select de Colegio.")
                 await self._screenshot("debug_login_no_col_select")
 
             # 4) Ingresar Matrícula (tipeo humano)
+            # Screenshot para diagnóstico antes de buscar el campo
+            await self._screenshot("debug_login_before_matricula")
             mat_selectors = [
                 'input[name*="matricul" i]',
-                'input[name*="mat" i]',
+                'input[id*="matricul" i]',
                 'input[placeholder*="matricul" i]',
+                'input[name*="mat" i]',
+                'input[id*="mat" i]',
                 'input[name="usuario"]',
                 'input[name="username"]',
+                'input[name="user"]',
+                'input[name="nro"]',
+                'input[name="numero"]',
+                'input[type="number"]',
+                'input[type="text"]:visible',
                 'input[type="text"]',
             ]
-            mat_field = await self._find_element(mat_selectors, timeout=5_000)
+            mat_field = await self._find_element(mat_selectors, timeout=8_000)
             if mat_field:
                 logger.info(f"Ingresando matrícula: {matricula}")
                 await self._type_human(mat_field, matricula)

@@ -99,8 +99,10 @@ class SISFEScraper:
 
     async def __aenter__(self):
         self._playwright = await async_playwright().start()
-        self._cookies_path = Path(
-            self.config.get("cookies_file", "sisfe_cookies.json")
+        cookies_file = self.config.get("cookies_file", "sisfe_cookies.json")
+        self._cookies_path = (
+            Path(cookies_file) if Path(cookies_file).is_absolute()
+            else Path(__file__).parent / cookies_file
         )
         # Arranca siempre en headless. Si hay que hacer login manual
         # (sesión expirada o sin cookies) se reabre en modo visible.

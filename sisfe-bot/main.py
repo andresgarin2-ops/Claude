@@ -97,13 +97,13 @@ async def check_expedientes(config: dict):
                 await asyncio.sleep(espera)
 
             codigo = exp["codigo"]
-            sede = exp.get("sede")
-            # Clave única por expediente+sede para no mezclar estados de distintas sedes
-            state_key = f"{codigo}|{sede}" if sede else codigo
-            label = f"{codigo} ({sede})" if sede else codigo
+            localidad = exp.get("localidad")
+            # Clave única por expediente+localidad para no mezclar estados
+            state_key = f"{codigo}|{localidad}" if localidad else codigo
+            label = f"{codigo} ({localidad})" if localidad else codigo
             logger.info(f"Procesando expediente: {label}")
 
-            state = await scraper.get_expediente_state(codigo, sede=sede)
+            state = await scraper.get_expediente_state(codigo, localidad=localidad)
             if state is None:
                 logger.warning(f"No se pudo obtener estado de {label}, se omite.")
                 continue

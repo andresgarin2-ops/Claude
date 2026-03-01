@@ -312,23 +312,37 @@ class SISFEScraper:
     # Consulta de expediente
     # ------------------------------------------------------------------
 
-    async def get_expediente_state(self, codigo: str, sede: str | None = None) -> dict | None:
+    async def get_expediente_state(self, codigo: str, localidad: str | None = None) -> dict | None:
         search_url = self.config.get(
             "search_url",
             "https://sisfe.justiciasantafe.gov.ar/buscar-expediente",
         )
-        sede_tag = sede.replace(" ", "_") if sede else "default"
-        debug_prefix = f"debug_{codigo.replace('-', '_')}_{sede_tag}"
+        loc_tag = localidad.replace(" ", "_") if localidad else "default"
+        debug_prefix = f"debug_{codigo.replace('-', '_')}_{loc_tag}"
         try:
-            logger.info(f"Consultando expediente {codigo}" + (f" (sede: {sede})" if sede else ""))
+            logger.info(f"Consultando expediente {codigo}" + (f" (localidad: {localidad})" if localidad else ""))
             await self._pause(2_000, 5_000)  # pausa antes de cada consulta
             await self.page.goto(search_url, wait_until="load", timeout=60_000)
-            await self._pause(800, 2_000)
 
-            # Seleccionar sede/localidad si se especificó
-            if sede:
-                await self._select_sede(sede)
+            # Esperar a que Angular renderice el formulario (puede tardar varios segundos)
+            try:
+                await self.page.wait_for_selector(
+                    "input, select, mat-select, ng-select",
+                    timeout=15_000,
+                )
+            except PlaywrightTimeout:
+                logger.warning("Formulario de búsqueda tardó más de 15s en renderizar; intentando de todas formas.")
+            await self._pause(800, 1_500)
+
+            # Seleccionar localidad si se especificó
+            if localidad:
+                await self._select_localidad(localidad)
                 await self._pause(500, 1_200)
+                # Esperar re-render después de seleccionar localidad
+                try:
+                    await self.page.wait_for_selector("input", timeout=5_000)
+                except PlaywrightTimeout:
+                    pass
 
             filled = await self._fill_search_field(codigo)
             if not filled:
@@ -494,35 +508,74 @@ class SISFEScraper:
         except Exception as exc:
             logger.warning(f"_select_by_partial_text falló: {exc}")
 
-    async def _select_sede(self, sede: str):
+    async def _select_localidad(self, localidad: str):
         """
-        Selecciona la localidad/sede en el formulario de búsqueda.
-        Prueba selectores comunes; si ninguno funciona, loguea advertencia y continúa.
+        Selecciona la localidad en el formulario de búsqueda.
+        Soporta <select> nativo y componentes Angular Material (mat-select).
         """
-        sede_selectors = [
+        # 1) Intentar <select> nativo
+        native_selectors = [
             'select[name*="localidad" i]',
-            'select[name*="sede" i]',
-            'select[name*="lugar" i]',
             'select[id*="localidad" i]',
+            'select[name*="sede" i]',
             'select[id*="sede" i]',
-            'select[placeholder*="localidad" i]',
+            'select[name*="lugar" i]',
         ]
-        sel = await self._find_element(sede_selectors, timeout=3_000)
+        sel = await self._find_element(native_selectors, timeout=3_000)
         if sel:
-            logger.info(f"Seleccionando sede/localidad: {sede}")
-            await self._select_by_partial_text(sel, sede)
-        else:
-            # Diagnóstico: listar selects disponibles en la página
+            logger.info(f"Seleccionando localidad (select nativo): {localidad}")
+            await self._select_by_partial_text(sel, localidad)
+            return
+
+        # 2) Intentar Angular Material mat-select
+        mat_selectors = [
+            'mat-select[placeholder*="localidad" i]',
+            'mat-select[aria-label*="localidad" i]',
+            'mat-select',
+        ]
+        mat = await self._find_element(mat_selectors, timeout=3_000)
+        if mat:
+            logger.info(f"Seleccionando localidad (mat-select): {localidad}")
+            await mat.click()
+            await self._pause(400, 800)
+            # Las opciones se renderizan en un panel fuera del mat-select
+            option_sel = f'mat-option:has-text("{localidad}")'
             try:
-                selects_info = await self.page.evaluate("""
-                    () => Array.from(document.querySelectorAll('select')).map(s => ({
-                        name: s.name, id: s.id,
-                        options: Array.from(s.options).map(o => o.text)
-                    }))
-                """)
-                logger.warning(f"No se encontró selector de sede. Selects en página: {selects_info}")
-            except Exception:
-                logger.warning(f"No se encontró selector de sede para '{sede}'.")
+                option = await self.page.wait_for_selector(option_sel, timeout=5_000)
+                if option:
+                    await option.click()
+                    logger.info(f"Opción '{localidad}' seleccionada en mat-select.")
+                    return
+            except PlaywrightTimeout:
+                pass
+            # Fallback: buscar opción que contenga el texto
+            try:
+                options = await self.page.query_selector_all("mat-option")
+                for opt in options:
+                    text = (await opt.inner_text()).strip()
+                    if localidad.lower() in text.lower():
+                        await opt.click()
+                        logger.info(f"Opción '{text}' seleccionada en mat-select (parcial).")
+                        return
+                logger.warning(f"No se encontró opción '{localidad}' en mat-select.")
+            except Exception as exc:
+                logger.warning(f"Error seleccionando en mat-select: {exc}")
+            return
+
+        # 3) Diagnóstico: qué hay en la página
+        try:
+            info = await self.page.evaluate("""
+                () => ({
+                    selects: Array.from(document.querySelectorAll('select')).map(s => ({name: s.name, id: s.id})),
+                    matSelects: Array.from(document.querySelectorAll('mat-select')).map(s => ({
+                        placeholder: s.getAttribute('placeholder'), label: s.getAttribute('aria-label')
+                    })),
+                    allText: document.body.innerText.slice(0, 300)
+                })
+            """)
+            logger.warning(f"No se encontró dropdown de localidad. Info página: {info}")
+        except Exception:
+            logger.warning(f"No se encontró dropdown de localidad para '{localidad}'.")
 
     async def _find_matricula_field(self):
         """

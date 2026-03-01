@@ -18,11 +18,8 @@ sisfe:
 # sede: (opcional) localidad que se selecciona en el formulario de búsqueda
 expedientes:
   - codigo: "21-25448313-0"
-    descripcion: "Censi c/ Gomez s/ ejecutivo (Rosario)"
-    sede: "Rosario"
-  - codigo: "21-25448313-0"
-    descripcion: "Censi c/ Gomez s/ ejecutivo (San Lorenzo)"
-    sede: "San Lorenzo"
+    descripcion: "Censi c/ Gomez s/ ejecutivo"
+    localidad: "San Lorenzo"
   # Agregá más expedientes acá:
   # - codigo: "21-XXXXXXXX-X"
   #   descripcion: "Mi expediente"

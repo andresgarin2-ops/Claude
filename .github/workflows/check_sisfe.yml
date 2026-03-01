@@ -33,6 +33,22 @@ jobs:
       - name: Install Playwright (Chromium) with system dependencies
         run: python -m playwright install --with-deps chromium
 
+      - name: Diagnóstico de conectividad SISFE
+        run: |
+          echo "=== IP pública del runner ==="
+          curl -s https://api.ipify.org
+          echo ""
+          echo "=== HTTP status de SISFE ==="
+          curl -o /dev/null -s -w "HTTP %{http_code} | tiempo: %{time_total}s\n" \
+            --max-time 30 \
+            --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+            https://sisfe.justiciasantafe.gov.ar || echo "FALLO: sin respuesta (timeout o bloqueo)"
+          echo "=== Headers de respuesta ==="
+          curl -s -I --max-time 30 \
+            --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+            https://sisfe.justiciasantafe.gov.ar 2>&1 | head -20 || echo "Sin headers"
+        continue-on-error: true
+
       - name: Run SISFE bot
         working-directory: sisfe-bot
         env:

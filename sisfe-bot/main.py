@@ -97,32 +97,28 @@ async def check_expedientes(config: dict):
                 await asyncio.sleep(espera)
 
             codigo = exp["codigo"]
-            localidad = exp.get("localidad")
-            # Clave única por expediente+localidad para no mezclar estados
-            state_key = f"{codigo}|{localidad}" if localidad else codigo
-            label = f"{codigo} ({localidad})" if localidad else codigo
-            logger.info(f"Procesando expediente: {label}")
+            logger.info(f"Procesando expediente: {codigo}")
 
-            state = await scraper.get_expediente_state(codigo, localidad=localidad)
+            state = await scraper.get_expediente_state(codigo)
             if state is None:
-                logger.warning(f"No se pudo obtener estado de {label}, se omite.")
+                logger.warning(f"No se pudo obtener estado de {codigo}, se omite.")
                 continue
 
-            prev = store.get_last_state(state_key)
+            prev = store.get_last_state(codigo)
 
             if prev is None:
-                store.save_state(state_key, state)
+                store.save_state(codigo, state)
                 logger.info(
-                    f"[{label}] Estado inicial registrado. "
+                    f"[{codigo}] Estado inicial registrado. "
                     "No se envía notificación (sin estado previo para comparar)."
                 )
             elif prev["hash"] != state["hash"]:
-                logger.info(f"[{label}] *** CAMBIO DETECTADO ***")
-                store.save_state(state_key, state)
+                logger.info(f"[{codigo}] *** CAMBIO DETECTADO ***")
+                store.save_state(codigo, state)
                 mensaje = build_mensaje(exp, state)
                 await notifier.send(mensaje)
             else:
-                logger.info(f"[{label}] Sin cambios.")
+                logger.info(f"[{codigo}] Sin cambios.")
 
 
 if __name__ == "__main__":

@@ -158,13 +158,13 @@ class SISFEScraper:
         if self._cookies_path.exists():
             try:
                 await self.page.goto(search_url, wait_until="load", timeout=20_000)
-                if (
-                    "login" not in self.page.url.lower()
-                    and "acceso" not in self.page.url.lower()
-                ):
+                # Sesión válida solo si efectivamente aterrizamos en el buscador
+                if "buscar-expediente" in self.page.url:
                     logger.info("Sesión previa válida — login omitido.")
                     return True
-                logger.info("Sesión expirada, se rehace el login...")
+                logger.info(
+                    f"Sesión expirada (redirigido a {self.page.url}), se rehace el login..."
+                )
                 self._cookies_path.unlink()
             except Exception:
                 pass
@@ -317,32 +317,30 @@ class SISFEScraper:
             "search_url",
             "https://sisfe.justiciasantafe.gov.ar/buscar-expediente",
         )
-        loc_tag = localidad.replace(" ", "_") if localidad else "default"
-        debug_prefix = f"debug_{codigo.replace('-', '_')}_{loc_tag}"
+        debug_prefix = f"debug_{codigo.replace('-', '_')}"
         try:
-            logger.info(f"Consultando expediente {codigo}" + (f" (localidad: {localidad})" if localidad else ""))
+            logger.info(f"Consultando expediente {codigo}")
             await self._pause(2_000, 5_000)  # pausa antes de cada consulta
             await self.page.goto(search_url, wait_until="load", timeout=60_000)
 
-            # Esperar a que Angular renderice el formulario (puede tardar varios segundos)
+            # Verificar que estamos en el buscador (sesión puede haber expirado)
+            if "buscar-expediente" not in self.page.url:
+                logger.error(
+                    f"Redirigido a {self.page.url} — sesión expirada durante la consulta. "
+                    "Borrá sisfe_cookies.json y volvé a correr el bot para reloguear."
+                )
+                self._cookies_path.unlink(missing_ok=True)
+                return None
+
+            # Esperar a que Angular renderice el formulario
             try:
                 await self.page.wait_for_selector(
-                    "input, select, mat-select, ng-select",
+                    "input, select, mat-select",
                     timeout=15_000,
                 )
             except PlaywrightTimeout:
-                logger.warning("Formulario de búsqueda tardó más de 15s en renderizar; intentando de todas formas.")
+                logger.warning("Formulario tardó más de 15s en renderizar; intentando de todas formas.")
             await self._pause(800, 1_500)
-
-            # Seleccionar localidad si se especificó
-            if localidad:
-                await self._select_localidad(localidad)
-                await self._pause(500, 1_200)
-                # Esperar re-render después de seleccionar localidad
-                try:
-                    await self.page.wait_for_selector("input", timeout=5_000)
-                except PlaywrightTimeout:
-                    pass
 
             filled = await self._fill_search_field(codigo)
             if not filled:

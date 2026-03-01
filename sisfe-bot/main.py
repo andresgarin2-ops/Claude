@@ -38,8 +38,8 @@ def load_config() -> dict:
         config = yaml.safe_load(f)
 
     # Inyectar credenciales desde variables de entorno (GitHub Secrets)
-    config["sisfe"]["username"] = os.environ.get(
-        "SISFE_USERNAME", config["sisfe"].get("username", "")
+    config["sisfe"]["matricula"] = os.environ.get(
+        "SISFE_MATRICULA", config["sisfe"].get("matricula", "")
     )
     config["sisfe"]["password"] = os.environ.get(
         "SISFE_PASSWORD", config["sisfe"].get("password", "")

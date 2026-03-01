@@ -96,29 +96,103 @@ class SISFEScraper:
     # ------------------------------------------------------------------
 
     async def login(self) -> bool:
+        """
+        Login en SISFE para matriculados.
+        Flujo: navegar → sección "Matriculados" → seleccionar Circunscripción
+               → seleccionar Colegio → ingresar Matrícula → ingresar Contraseña → submit.
+        """
         login_url = self.config.get(
             "login_url", "https://sisfe.justiciasantafe.gov.ar"
         )
+        circunscripcion = self.config.get("circunscripcion", "Rosario")
+        colegio = self.config.get("colegio", "Abogados")
+        matricula = self.config.get("matricula", "")
+        password = self.config.get("password", "")
+
         try:
             logger.info(f"Navegando a {login_url}")
             await self.page.goto(login_url, wait_until="networkidle", timeout=30_000)
 
-            # Buscar campo de usuario
-            user_field = await self._find_element(USER_SELECTORS, timeout=3_000)
-            if not user_field:
-                logger.error("No se encontró campo de usuario en la página de login")
-                await self._screenshot("debug_login_no_user_field")
+            # 1) Buscar y clickear el acceso para "Matriculados"
+            matriculados_selectors = [
+                'a:has-text("Matriculados")',
+                'a:has-text("matriculados")',
+                'button:has-text("Matriculados")',
+                '[href*="matriculado"]',
+                'a:has-text("Ingresar")',
+            ]
+            mat_link = await self._find_element(matriculados_selectors, timeout=5_000)
+            if mat_link:
+                logger.info("Sección Matriculados encontrada, haciendo click...")
+                await mat_link.click()
+                await self.page.wait_for_load_state("networkidle", timeout=15_000)
+            else:
+                logger.warning(
+                    "No se encontró el link de Matriculados. "
+                    "Intentando continuar en la página actual."
+                )
+                await self._screenshot("debug_login_no_matriculados_link")
+
+            # 2) Seleccionar Circunscripción (dropdown)
+            circ_selectors = [
+                'select[name*="circunscripcion" i]',
+                'select[name*="circ" i]',
+                'select[name*="jurisdiccion" i]',
+                'select[id*="circunscripcion" i]',
+                'select[id*="circ" i]',
+                'select:first-of-type',
+            ]
+            circ_select = await self._find_element(circ_selectors, timeout=5_000)
+            if circ_select:
+                logger.info(f"Seleccionando circunscripción: {circunscripcion}")
+                await circ_select.select_option(label=circunscripcion)
+                # Esperar a que el dropdown de Colegio se actualice (puede ser dinámico)
+                await self.page.wait_for_timeout(1_500)
+            else:
+                logger.warning("No se encontró el select de Circunscripción.")
+                await self._screenshot("debug_login_no_circ_select")
+
+            # 3) Seleccionar Colegio (dropdown)
+            col_selectors = [
+                'select[name*="colegio" i]',
+                'select[name*="col" i]',
+                'select[id*="colegio" i]',
+                'select:nth-of-type(2)',
+            ]
+            col_select = await self._find_element(col_selectors, timeout=5_000)
+            if col_select:
+                logger.info(f"Seleccionando colegio: {colegio}")
+                await col_select.select_option(label=colegio)
+                await self.page.wait_for_timeout(500)
+            else:
+                logger.warning("No se encontró el select de Colegio.")
+                await self._screenshot("debug_login_no_col_select")
+
+            # 4) Ingresar Matrícula
+            mat_selectors = [
+                'input[name*="matricul" i]',
+                'input[name*="mat" i]',
+                'input[placeholder*="matricul" i]',
+                'input[name="usuario"]',
+                'input[name="username"]',
+                'input[type="text"]',
+            ]
+            mat_field = await self._find_element(mat_selectors, timeout=5_000)
+            if mat_field:
+                logger.info(f"Ingresando matrícula: {matricula}")
+                await mat_field.fill(matricula)
+            else:
+                logger.error("No se encontró el campo de Matrícula.")
+                await self._screenshot("debug_login_no_matricula_field")
                 return False
 
-            await user_field.fill(self.config["username"])
-
-            # Buscar campo de contraseña
+            # 5) Ingresar Contraseña
             pass_field = await self.page.wait_for_selector(
                 'input[type="password"]', timeout=5_000
             )
-            await pass_field.fill(self.config["password"])
+            await pass_field.fill(password)
 
-            # Click en submit
+            # 6) Submit
             submit = await self._find_element(SUBMIT_SELECTORS, timeout=3_000)
             if submit:
                 await submit.click()
@@ -127,16 +201,16 @@ class SISFEScraper:
 
             await self.page.wait_for_load_state("networkidle", timeout=20_000)
 
-            # Heurística de éxito: la URL ya no contiene "login"
-            if "login" not in self.page.url.lower():
+            # Verificar resultado
+            current_url = self.page.url.lower()
+            if "login" not in current_url and "acceso" not in current_url:
                 logger.info("Login exitoso")
                 return True
 
-            # Verificar mensaje de error en la página
             body = await self.page.inner_text("body")
             if any(
                 kw in body.lower()
-                for kw in ["credenciales", "contraseña incorrecta", "error", "invalid"]
+                for kw in ["incorrecta", "inválida", "error", "invalid", "no encontrada"]
             ):
                 logger.error("Login falló: credenciales incorrectas")
                 await self._screenshot("debug_login_failed")

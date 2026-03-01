@@ -31,10 +31,13 @@ En tu repositorio: **Settings → Secrets and variables → Actions → New repo
 
 | Secreto | Valor |
 |---|---|
-| `SISFE_USERNAME` | Tu usuario del SISFE |
+| `SISFE_MATRICULA` | Tu número de matrícula (ej: `XLVIII338`) |
 | `SISFE_PASSWORD` | Tu contraseña del SISFE |
 | `TWILIO_ACCOUNT_SID` | Account SID de Twilio |
 | `TWILIO_AUTH_TOKEN` | Auth Token de Twilio |
+
+> La Circunscripción (`Rosario`) y el Colegio (`Abogados`) están en `config.yaml`
+> porque no son datos sensibles.
 
 ### 3. Activar el sandbox de Twilio WhatsApp
 
@@ -59,8 +62,8 @@ cd sisfe-bot
 pip install -r requirements.txt
 playwright install chromium
 
-SISFE_USERNAME="tu_usuario" \
-SISFE_PASSWORD="tu_contraseña" \
+SISFE_MATRICULA="XLVIII338" \
+SISFE_PASSWORD="1397" \
 TWILIO_ACCOUNT_SID="ACxxxxx" \
 TWILIO_AUTH_TOKEN="xxxxx" \
 python main.py

@@ -7,8 +7,11 @@
 sisfe:
   login_url: "https://sisfe.justiciasantafe.gov.ar"
   search_url: "https://sisfe.justiciasantafe.gov.ar/buscar-expediente"
-  # username → env: SISFE_USERNAME
-  # password → env: SISFE_PASSWORD
+  # Campos del formulario de Matriculados:
+  circunscripcion: "Rosario"    # valor del dropdown (no es secreto)
+  colegio: "Abogados"           # valor del dropdown (no es secreto)
+  # matricula → env: SISFE_MATRICULA
+  # password  → env: SISFE_PASSWORD
 
 # Lista de expedientes a monitorear
 # Formato: JUR-NUMERO-SUFIJO (ej: "21-02343434-2")

@@ -36,7 +36,7 @@ jobs:
       - name: Run SISFE bot
         working-directory: sisfe-bot
         env:
-          SISFE_USERNAME: ${{ secrets.SISFE_USERNAME }}
+          SISFE_MATRICULA: ${{ secrets.SISFE_MATRICULA }}
           SISFE_PASSWORD: ${{ secrets.SISFE_PASSWORD }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}

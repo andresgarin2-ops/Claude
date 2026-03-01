@@ -225,7 +225,10 @@ class SISFEScraper:
                 logger.info(f"Seleccionando colegio: {colegio}")
                 await self._pause(400, 900)
                 await col_select.select_option(label=colegio)
-                await self.page.wait_for_load_state("networkidle", timeout=10_000)
+                try:
+                    await self.page.wait_for_load_state("networkidle", timeout=10_000)
+                except PlaywrightTimeout:
+                    pass  # La página puede no alcanzar networkidle (reCAPTCHA, etc.)
                 await self._pause(1_500, 3_000)
             else:
                 logger.warning("No se encontró el select de Colegio.")

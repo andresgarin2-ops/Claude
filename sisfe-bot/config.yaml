@@ -17,7 +17,7 @@ sisfe:
 # Formato: JUR-NUMERO-SUFIJO (ej: "21-02343434-2")
 expedientes:
   - codigo: "21-25448313-0"
-    descripcion: "Expediente 21-25448313-0"
+    descripcion: "Censi c/ Gomez s/ ejecutivo"
   # Agregá más expedientes acá:
   # - codigo: "21-XXXXXXXX-X"
   #   descripcion: "Mi expediente"

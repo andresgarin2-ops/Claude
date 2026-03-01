@@ -83,11 +83,10 @@ class SISFEScraper:
         self._cookies_path = Path(
             self.config.get("cookies_file", "sisfe_cookies.json")
         )
-        # Headless solo si ya tenemos cookies guardadas. Si no, abre visible
-        # para que el usuario resuelva el reCAPTCHA manualmente.
-        headless = self._cookies_path.exists()
+        # Arranca siempre en headless. Si hay que hacer login manual
+        # (sesión expirada o sin cookies) se reabre en modo visible.
         self._browser = await self._playwright.chromium.launch(
-            headless=headless,
+            headless=True,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -119,6 +118,32 @@ class SISFEScraper:
             await self._browser.close()
         if self._playwright:
             await self._playwright.stop()
+
+    async def _reopen_visible(self):
+        """Cierra el browser headless y lo reabre en modo visible para login manual."""
+        logger.info("Reabriendo navegador en modo visible para login manual...")
+        url_actual = self.page.url
+        await self._context.close()
+        await self._browser.close()
+        self._browser = await self._playwright.chromium.launch(
+            headless=False,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--start-maximized",
+            ],
+        )
+        self._context = await self._browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent=(
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        )
+        self.page = await self._context.new_page()
+        return url_actual
 
     async def _pause(self, min_ms: int = 800, max_ms: int = 2500):
         """Pausa aleatoria para simular comportamiento humano."""
@@ -180,6 +205,9 @@ class SISFEScraper:
                 self._cookies_path.unlink()
             except Exception:
                 pass
+
+        # Reabrir en modo visible para que el usuario resuelva el reCAPTCHA
+        await self._reopen_visible()
 
         try:
             # ── 1) Navegar a la página de login ───────────────────────────

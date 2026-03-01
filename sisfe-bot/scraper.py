@@ -231,34 +231,44 @@ class SISFEScraper:
                 logger.warning("No se encontró el select de Colegio.")
                 await self._screenshot("debug_login_no_col_select")
 
-            # ── 5) Ingresar Matrícula ─────────────────────────────────────
-            mat_field = await self._find_matricula_field()
-            if mat_field:
-                logger.info(f"Ingresando matrícula: {matricula}")
-                await self._type_human(mat_field, matricula)
+            # ── 5 y 6) Intentar auto-completar Matrícula y Contraseña ────────
+            # Primero intenta Tab desde el dropdown de colegio (más robusto que selectores)
+            auto_filled = False
+            if col_select:
+                try:
+                    await col_select.press("Tab")
+                    await self._pause(400, 800)
+                    await self.page.keyboard.type(matricula, delay=random.randint(40, 100))
+                    await self._pause(300, 700)
+                    await self.page.keyboard.press("Tab")
+                    await self._pause(300, 600)
+                    await self.page.keyboard.type(password, delay=random.randint(40, 100))
+                    auto_filled = True
+                    logger.info("Matrícula y contraseña completadas via teclado.")
+                except Exception as exc:
+                    logger.warning(f"Auto-completado via Tab falló: {exc}")
+
+            # ── 7) Pedir acción al usuario ─────────────────────────────────
+            if auto_filled:
+                print("\n" + "=" * 60)
+                print("  ACCIÓN REQUERIDA EN EL NAVEGADOR:")
+                print("  1. Verificá que Matrícula y Contraseña estén correctas")
+                print("  2. Tildá el checkbox 'No soy un robot'")
+                print("  3. Resolvé el desafío si aparece")
+                print("  4. Hacé click en 'Ingresar'")
+                print("  El bot va a continuar automáticamente.")
+                print("=" * 60 + "\n")
             else:
-                logger.error("No se encontró el campo de Matrícula.")
-                await self._screenshot("debug_login_no_matricula_field")
-                return False
-
-            await self._pause(500, 1_200)
-
-            # ── 6) Ingresar Contraseña ────────────────────────────────────
-            pass_field = await self.page.wait_for_selector(
-                'input[type="password"]', timeout=5_000
-            )
-            await self._type_human(pass_field, password)
-            await self._pause(800, 1_500)
-
-            # ── 7) Esperar reCAPTCHA manual y submit ──────────────────────
-            print("\n" + "=" * 60)
-            print("  ACCIÓN REQUERIDA EN EL NAVEGADOR:")
-            print("  1. Tildá el checkbox 'No soy un robot'")
-            print("  2. Resolvé el desafío si aparece")
-            print("  3. Hacé click en 'Ingresar'")
-            print("  El bot va a continuar automáticamente.")
-            print("=" * 60 + "\n")
-            logger.info("Esperando que el usuario complete el reCAPTCHA (hasta 3 min)...")
+                print("\n" + "=" * 60)
+                print("  ACCIÓN REQUERIDA EN EL NAVEGADOR:")
+                print(f"  1. Completá el campo MATRÍCULA con: {matricula}")
+                print("  2. Completá el campo CONTRASEÑA")
+                print("  3. Tildá el checkbox 'No soy un robot'")
+                print("  4. Resolvé el desafío si aparece")
+                print("  5. Hacé click en 'Ingresar'")
+                print("  El bot va a continuar automáticamente.")
+                print("=" * 60 + "\n")
+            logger.info("Esperando que el usuario complete el login (hasta 3 min)...")
 
             url_antes = self.page.url
             for _ in range(360):  # hasta 3 minutos

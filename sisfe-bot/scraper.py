@@ -207,7 +207,7 @@ class SISFEScraper:
             if circ_select:
                 logger.info(f"Seleccionando circunscripción: {circunscripcion}")
                 await self._pause(400, 900)
-                await circ_select.select_option(label=circunscripcion)
+                await self._select_by_partial_text(circ_select, circunscripcion)
                 await self._pause(1_200, 2_500)
             else:
                 logger.warning("No se encontró el select de Circunscripción.")
@@ -224,7 +224,7 @@ class SISFEScraper:
             if col_select:
                 logger.info(f"Seleccionando colegio: {colegio}")
                 await self._pause(400, 900)
-                await col_select.select_option(label=colegio)
+                await self._select_by_partial_text(col_select, colegio)
                 try:
                     await self.page.wait_for_load_state("networkidle", timeout=10_000)
                 except PlaywrightTimeout:
@@ -421,6 +421,34 @@ class SISFEScraper:
             except PlaywrightTimeout:
                 continue
         return None
+
+    async def _select_by_partial_text(self, select_element, text: str):
+        """
+        Selecciona la primera opción cuyo texto contenga `text` (insensible a mayúsculas).
+        Primero intenta coincidencia exacta; si falla, usa coincidencia parcial via JS.
+        """
+        try:
+            await select_element.select_option(label=text)
+            return
+        except Exception:
+            pass
+        # Fallback: buscar opción que contenga el texto
+        try:
+            value = await self.page.evaluate(
+                """([el, txt]) => {
+                    const opts = Array.from(el.options);
+                    const match = opts.find(o => o.text.toLowerCase().includes(txt.toLowerCase()));
+                    if (match) { el.value = match.value; el.dispatchEvent(new Event('change', {bubbles:true})); return match.value; }
+                    return null;
+                }""",
+                [select_element, text],
+            )
+            if value:
+                logger.info(f"Opción seleccionada por texto parcial: '{text}' → valor '{value}'")
+            else:
+                logger.warning(f"No se encontró opción que contenga '{text}'")
+        except Exception as exc:
+            logger.warning(f"_select_by_partial_text falló: {exc}")
 
     async def _find_matricula_field(self):
         """

@@ -23,9 +23,10 @@ sisfe:
 expedientes:
   - codigo: "21-25448313-0"
     descripcion: "Censi c/ Gomez s/ ejecutivo (San Lorenzo)"
-  # Agregá más expedientes acá:
-  # - codigo: "21-XXXXXXXX-X"
-  #   descripcion: "Mi expediente"
+  - codigo: "21-01657659-7"
+    descripcion: "Sucesión Natalini"
+  - codigo: "21-02962475-2"
+    descripcion: "Quiebra LH"
 
 twilio:
   from_number: "whatsapp:+14155238886"

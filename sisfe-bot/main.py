@@ -1,13 +1,13 @@
 """
 Orquestador principal del bot SISFE.
-Diseñado para ejecutarse en GitHub Actions (modo one-shot).
+Puede ejecutarse en GitHub Actions o localmente desde una PC.
 
-Las credenciales se leen desde variables de entorno:
-    SISFE_USERNAME, SISFE_PASSWORD
-    TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
+Las credenciales se leen desde un archivo .env (ejecución local)
+o desde variables de entorno / GitHub Secrets (CI).
 
-Uso local (para probar):
-    SISFE_USERNAME=xxx SISFE_PASSWORD=yyy python main.py
+Uso local:
+    1. Copiá .env.example a .env y completá los valores
+    2. python main.py
 """
 
 import asyncio
@@ -19,6 +19,10 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
+
+# Cargar .env si existe (ejecución local). En GitHub Actions no existe y se ignora.
+load_dotenv(Path(__file__).parent / ".env")
 
 from state import StateStore
 from notifier import WhatsAppNotifier
@@ -82,7 +86,7 @@ async def check_expedientes(config: dict):
         if not logged_in:
             logger.error(
                 "No se pudo hacer login en SISFE. "
-                "Revisá SISFE_USERNAME y SISFE_PASSWORD en los secretos de GitHub."
+                "Revisá SISFE_MATRICULA y SISFE_PASSWORD en el archivo .env."
             )
             sys.exit(1)
 

@@ -1,0 +1,12 @@
+# Credenciales locales - nunca commitear
+sisfe-bot/.env
+
+# Screenshots de debug generados por el scraper
+sisfe-bot/debug_*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/

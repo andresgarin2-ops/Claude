@@ -1,72 +1,139 @@
-# Bot SISFE - Guía de instalación (GitHub Actions + Twilio)
+# Bot SISFE - Guía de instalación
 
 ## Cómo funciona
 
-1. GitHub Actions corre el bot **automáticamente cada hora**.
-2. El bot abre un Chromium invisible, hace login en SISFE y consulta cada expediente.
-3. Compara el contenido actual con el guardado en `state.json`.
-4. Si hay un cambio → manda un **WhatsApp vía Twilio**.
-5. `state.json` se commitea automáticamente al repo con el estado actualizado.
+1. El bot abre un Chromium invisible, hace login en SISFE y consulta cada expediente.
+2. Compara el contenido actual con el guardado en `state.json`.
+3. Si hay un cambio → manda un **WhatsApp vía Twilio**.
+4. El estado se guarda localmente en `state.json`.
 
 ---
 
-## Configuración (una sola vez)
+## Instalación desde cero (una sola vez)
 
-### 1. Agregar los expedientes a monitorear
+### Requisitos
+- Python 3.10 o superior → https://www.python.org/downloads/
+- Durante la instalación de Python en Windows: **tildar "Add Python to PATH"**
 
-Editá `config.yaml` y reemplazá los valores de ejemplo:
+### Pasos
+
+```bash
+# 1. Ir a la carpeta del bot
+cd sisfe-bot
+
+# 2. (Opcional pero recomendado) Crear entorno virtual
+python -m venv .venv
+
+# En Windows:
+.venv\Scripts\activate
+# En Linux/Mac:
+source .venv/bin/activate
+
+# 3. Instalar dependencias
+pip install -r requirements.txt
+
+# 4. Instalar el navegador Chromium
+playwright install chromium
+```
+
+---
+
+## Configurar credenciales
+
+Copiá el archivo `.env.example` y renombralo como `.env`:
+
+```bash
+# Windows
+copy .env.example .env
+
+# Linux/Mac
+cp .env.example .env
+```
+
+Abrí `.env` con el Bloc de notas y completá los valores:
+
+```
+SISFE_MATRICULA=XLVIII338        ← tu matrícula
+SISFE_PASSWORD=tu_contraseña
+TWILIO_ACCOUNT_SID=ACxxxxxxxx...
+TWILIO_AUTH_TOKEN=xxxxxxxx...
+```
+
+> **Importante:** el archivo `.env` está en `.gitignore` y nunca se sube a GitHub.
+
+---
+
+## Agregar expedientes a monitorear
+
+Editá `config.yaml`:
 
 ```yaml
 expedientes:
-  - codigo: "21-02343434-2"   # ← tu número de expediente
-    descripcion: "Mi expediente"
+  - codigo: "21-25448313-0"
+    descripcion: "Censi c/ Gomez s/ ejecutivo"
+  - codigo: "21-XXXXXXXX-X"
+    descripcion: "Otro expediente"
 ```
 
-> El formato es `JUR-NUMERO-SUFIJO`. Si no sabés el formato exacto, consultá la URL
-> que usa el SISFE cuando lo buscás manualmente.
+La circunscripción y el colegio también se configuran ahí:
 
-### 2. Configurar los secretos en GitHub
-
-En tu repositorio: **Settings → Secrets and variables → Actions → New repository secret**
-
-| Secreto | Valor |
-|---|---|
-| `SISFE_MATRICULA` | Tu número de matrícula (ej: `XLVIII338`) |
-| `SISFE_PASSWORD` | Tu contraseña del SISFE |
-| `TWILIO_ACCOUNT_SID` | Account SID de Twilio |
-| `TWILIO_AUTH_TOKEN` | Auth Token de Twilio |
-
-> La Circunscripción (`Rosario`) y el Colegio (`Abogados`) están en `config.yaml`
-> porque no son datos sensibles.
-
-### 3. Activar el sandbox de Twilio WhatsApp
-
-Antes de que puedas recibir mensajes, tenés que unirte al sandbox:
-
-1. En tu WhatsApp, mandá un mensaje a **+1 415 523 8886**
-2. El mensaje debe ser: `join <palabra-del-sandbox>`
-   (la palabra la encontrás en Twilio Console → Messaging → Try it out → Send a WhatsApp message)
+```yaml
+sisfe:
+  circunscripcion: "Rosario"
+  colegio: "Abogados"
+```
 
 ---
 
-## Ejecutar manualmente
+## Activar el sandbox de Twilio WhatsApp (una sola vez)
 
-En GitHub: **Actions → Check SISFE Expedientes → Run workflow**
+Antes de recibir mensajes tenés que unirte al sandbox:
+
+1. Desde tu WhatsApp, mandá un mensaje a **+1 415 523 8886**
+2. El texto debe ser: `join <palabra-del-sandbox>`
+   (la encontrás en Twilio Console → Messaging → Try it out → Send a WhatsApp message)
 
 ---
 
-## Ejecutar en local (para probar)
+## Ejecutar el bot
+
+### Prueba manual (una sola vez para verificar)
 
 ```bash
 cd sisfe-bot
-pip install -r requirements.txt
-playwright install chromium
-
-SISFE_MATRICULA="XLVIII338" \
-SISFE_PASSWORD="1397" \
-TWILIO_ACCOUNT_SID="ACxxxxx" \
-TWILIO_AUTH_TOKEN="xxxxx" \
 python main.py
+```
+
+El log aparece en pantalla. La primera vez registra el estado inicial (no envía WhatsApp). Las siguientes veces envía WhatsApp solo si hubo cambios.
+
+---
+
+## Programar ejecución automática (cada 1 hora)
+
+### Windows — Programador de tareas
+
+1. Buscá **"Programador de tareas"** en el menú inicio
+2. Clic en **"Crear tarea básica..."**
+3. Nombre: `Bot SISFE`
+4. Desencadenador: **Diariamente**, repetir cada **1 hora**
+5. Acción: **Iniciar un programa**
+   - Programa: ruta completa al `run.bat`, por ejemplo:
+     `C:\Users\TuNombre\Documents\Claude\sisfe-bot\run.bat`
+6. En **"Condiciones"**: desmarcá "Iniciar la tarea solo si el equipo está conectado a la corriente"
+7. Finalizá
+
+El log queda en `sisfe-bot\sisfe_bot.log`.
+
+### Linux/Mac — cron
+
+```bash
+crontab -e
+```
+
+Agregá esta línea (reemplazá la ruta):
+
+```
+0 * * * * /home/tuusuario/Claude/sisfe-bot/run.sh
 ```
 
 ---
@@ -75,7 +142,8 @@ python main.py
 
 | Problema | Solución |
 |---|---|
-| Error de login | Revisá `SISFE_USERNAME` y `SISFE_PASSWORD` en los secrets |
-| No encuentra campos | La UI del SISFE puede haber cambiado. Revisá `debug_*.png` en los artefactos del Action |
+| Error de login | Revisá `SISFE_MATRICULA` y `SISFE_PASSWORD` en el archivo `.env` |
+| No encuentra campos | La UI del SISFE puede haber cambiado. Aparecen screenshots `debug_*.png` en la carpeta |
 | WhatsApp no llega | Verificá que te hayas unido al sandbox de Twilio |
-| `state.json` no se commitea | Verificá que el workflow tenga `permissions: contents: write` |
+| `python` no se reconoce (Windows) | Reinstalá Python tildando "Add to PATH", o usá `py` en lugar de `python` |
+| Error de módulo `dotenv` | Corré `pip install -r requirements.txt` de nuevo |

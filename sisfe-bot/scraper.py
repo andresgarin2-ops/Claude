@@ -232,24 +232,7 @@ class SISFEScraper:
                 await self._screenshot("debug_login_no_col_select")
 
             # ── 5) Ingresar Matrícula ─────────────────────────────────────
-            mat_selectors = [
-                'input[name*="matricul" i]',
-                'input[id*="matricul" i]',
-                'input[placeholder*="matricul" i]',
-                'input[placeholder*="matr" i]',
-                'input[name*="mat" i]',
-                'input[id*="mat" i]',
-                'input[name="usuario"]',
-                'input[name="username"]',
-                'input[name="user"]',
-                'input[name="nro"]',
-                'input[name="numero"]',
-                'input[type="number"]',
-                'input[type="text"]:visible',
-                'input[type="text"]',
-                'input:not([type="password"]):not([type="hidden"]):not([type="submit"]):not([type="button"])',
-            ]
-            mat_field = await self._find_element(mat_selectors, timeout=8_000)
+            mat_field = await self._find_matricula_field()
             if mat_field:
                 logger.info(f"Ingresando matrícula: {matricula}")
                 await self._type_human(mat_field, matricula)
@@ -424,6 +407,47 @@ class SISFEScraper:
                     return element
             except PlaywrightTimeout:
                 continue
+        return None
+
+    async def _find_matricula_field(self):
+        """
+        Busca el campo de matrícula con dos estrategias:
+        1. Selectores CSS (timeout corto por selector).
+        2. Fallback JS: recorre todos los <input> visibles y devuelve
+           el primero que no sea password/hidden/submit/button.
+        Esto cubre inputs de Angular que no tienen atributo type explícito.
+        """
+        css_selectors = [
+            'input[name*="matricul" i]',
+            'input[id*="matricul" i]',
+            'input[placeholder*="matricul" i]',
+            'input[placeholder*="matr" i]',
+            'input[name*="mat" i]',
+            'input[id*="mat" i]',
+            'input[name="usuario"]',
+            'input[name="username"]',
+            'input[name="nro"]',
+            'input[type="number"]',
+            'input[type="text"]',
+            'input:not([type])',   # Angular: inputs sin atributo type
+            'input:not([type="password"]):not([type="hidden"]):not([type="submit"]):not([type="button"])',
+        ]
+        field = await self._find_element(css_selectors, timeout=3_000)
+        if field:
+            return field
+
+        # Fallback: JS enumera todos los inputs de la página
+        logger.info("CSS selectors fallaron, usando JS para encontrar el campo...")
+        try:
+            inputs = await self.page.query_selector_all("input")
+            skip = {"password", "hidden", "submit", "button", "checkbox", "radio", "file", "image"}
+            for inp in inputs:
+                inp_type = (await inp.get_attribute("type") or "text").lower()
+                if inp_type not in skip and await inp.is_visible():
+                    logger.info(f"Campo encontrado via JS (type='{inp_type}')")
+                    return inp
+        except Exception as exc:
+            logger.warning(f"JS fallback falló: {exc}")
         return None
 
     async def _save_cookies(self):

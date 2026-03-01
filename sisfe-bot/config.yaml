@@ -15,7 +15,7 @@ sisfe:
 
   # Intervalos del modo daemon (ejecución continua local)
   check_interval_minutes: 30      # cada cuánto verificar expedientes
-  keepalive_interval_minutes: 12  # cada cuánto refrescar la sesión para no ser deslogueado
+  keepalive_interval_minutes: 5   # cada cuánto refrescar la sesión para no ser deslogueado
 
 # Lista de expedientes a monitorear
 # Formato: JUR-NUMERO-SUFIJO (ej: "21-02343434-2")

@@ -286,18 +286,37 @@ class SISFEScraper:
                 print("  5. Hacé click en 'Ingresar'")
                 print("  El bot va a continuar automáticamente.")
                 print("=" * 60 + "\n")
-            logger.info("Esperando que el usuario complete el login (hasta 3 min)...")
+            wait_minutes = int(self.config.get("captcha_timeout_minutes", 5))
+            logger.info(
+                f"Esperando que el usuario complete el login (hasta {wait_minutes} min)..."
+            )
 
             url_antes = self.page.url
-            for _ in range(360):  # hasta 3 minutos
+            total_polls = wait_minutes * 60 * 2  # cada 0.5 s
+            for _ in range(total_polls):
                 await asyncio.sleep(0.5)
-                if self.page.url != url_antes:
+                current = self.page.url
+                # Detectar cambio de URL O desaparición del formulario de login
+                if current != url_antes:
                     break
+                try:
+                    still_on_login = await self.page.query_selector(
+                        'button:has-text("Ingresar"), button:has-text("Login")'
+                    )
+                    if still_on_login is None:
+                        break  # El formulario ya no está → login exitoso
+                except Exception:
+                    pass
             else:
-                logger.error("Timeout: el reCAPTCHA no fue resuelto en 3 minutos.")
+                logger.error(
+                    f"Timeout: el reCAPTCHA no fue resuelto en {wait_minutes} minutos."
+                )
                 return False
 
-            await self.page.wait_for_load_state("load", timeout=20_000)
+            try:
+                await self.page.wait_for_load_state("load", timeout=20_000)
+            except PlaywrightTimeout:
+                pass
 
             # ── 8) Verificar resultado y guardar cookies ──────────────────
             current_url = self.page.url.lower()

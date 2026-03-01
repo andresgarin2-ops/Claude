@@ -55,6 +55,9 @@ def load_config() -> dict:
     config["twilio"]["auth_token"] = os.environ.get(
         "TWILIO_AUTH_TOKEN", config["twilio"].get("auth_token", "")
     )
+    captcha_timeout = os.environ.get("CAPTCHA_TIMEOUT_MINUTES")
+    if captcha_timeout:
+        config["sisfe"]["captcha_timeout_minutes"] = captcha_timeout
 
     return config
 

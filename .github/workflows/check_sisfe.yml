@@ -30,13 +30,6 @@ jobs:
         working-directory: sisfe-bot
         run: pip install -r requirements.txt
 
-      - name: Patch libasound2 for Ubuntu 24.04
-        run: |
-          sudo apt-get install -y equivs
-          printf 'Package: libasound2\nVersion: 99\nArchitecture: amd64\nMaintainer: CI\nDescription: Dummy libasound2 transitional package\n' > /tmp/libasound2.ctl
-          cd /tmp && equivs-build libasound2.ctl
-          sudo dpkg -i /tmp/libasound2_99_amd64.deb
-
       - name: Install Playwright (Chromium) with system dependencies
         run: python -m playwright install --with-deps chromium
 

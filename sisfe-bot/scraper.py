@@ -312,21 +312,28 @@ class SISFEScraper:
     # Consulta de expediente
     # ------------------------------------------------------------------
 
-    async def get_expediente_state(self, codigo: str) -> dict | None:
+    async def get_expediente_state(self, codigo: str, sede: str | None = None) -> dict | None:
         search_url = self.config.get(
             "search_url",
             "https://sisfe.justiciasantafe.gov.ar/buscar-expediente",
         )
+        sede_tag = sede.replace(" ", "_") if sede else "default"
+        debug_prefix = f"debug_{codigo.replace('-', '_')}_{sede_tag}"
         try:
-            logger.info(f"Consultando expediente {codigo}")
+            logger.info(f"Consultando expediente {codigo}" + (f" (sede: {sede})" if sede else ""))
             await self._pause(2_000, 5_000)  # pausa antes de cada consulta
             await self.page.goto(search_url, wait_until="load", timeout=60_000)
             await self._pause(800, 2_000)
 
+            # Seleccionar sede/localidad si se especificó
+            if sede:
+                await self._select_sede(sede)
+                await self._pause(500, 1_200)
+
             filled = await self._fill_search_field(codigo)
             if not filled:
                 logger.error(f"No se pudo ingresar el código {codigo}")
-                await self._screenshot(f"debug_{codigo.replace('-', '_')}_no_field")
+                await self._screenshot(f"{debug_prefix}_no_field")
                 return None
 
             # Confirmar búsqueda
@@ -353,7 +360,7 @@ class SISFEScraper:
 
         except Exception as exc:
             logger.error(f"Excepción consultando {codigo}: {exc}")
-            await self._screenshot(f"debug_{codigo.replace('-', '_')}_exception")
+            await self._screenshot(f"{debug_prefix}_exception")
             return None
 
     # ------------------------------------------------------------------
@@ -486,6 +493,36 @@ class SISFEScraper:
                 logger.warning(f"No se encontró opción que contenga '{text}'")
         except Exception as exc:
             logger.warning(f"_select_by_partial_text falló: {exc}")
+
+    async def _select_sede(self, sede: str):
+        """
+        Selecciona la localidad/sede en el formulario de búsqueda.
+        Prueba selectores comunes; si ninguno funciona, loguea advertencia y continúa.
+        """
+        sede_selectors = [
+            'select[name*="localidad" i]',
+            'select[name*="sede" i]',
+            'select[name*="lugar" i]',
+            'select[id*="localidad" i]',
+            'select[id*="sede" i]',
+            'select[placeholder*="localidad" i]',
+        ]
+        sel = await self._find_element(sede_selectors, timeout=3_000)
+        if sel:
+            logger.info(f"Seleccionando sede/localidad: {sede}")
+            await self._select_by_partial_text(sel, sede)
+        else:
+            # Diagnóstico: listar selects disponibles en la página
+            try:
+                selects_info = await self.page.evaluate("""
+                    () => Array.from(document.querySelectorAll('select')).map(s => ({
+                        name: s.name, id: s.id,
+                        options: Array.from(s.options).map(o => o.text)
+                    }))
+                """)
+                logger.warning(f"No se encontró selector de sede. Selects en página: {selects_info}")
+            except Exception:
+                logger.warning(f"No se encontró selector de sede para '{sede}'.")
 
     async def _find_matricula_field(self):
         """

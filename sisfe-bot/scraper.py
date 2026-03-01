@@ -3,10 +3,13 @@ SISFE Scraper - Automatización de consulta de expedientes judiciales de Santa F
 Usa Playwright para controlar un navegador real y evadir protecciones anti-bot.
 """
 
+import asyncio
 import hashlib
+import json
 import logging
 import random
 from datetime import datetime
+from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 logger = logging.getLogger(__name__)
@@ -71,15 +74,21 @@ class SISFEScraper:
 
     async def __aenter__(self):
         self._playwright = await async_playwright().start()
+        self._cookies_path = Path(
+            self.config.get("cookies_file", "sisfe_cookies.json")
+        )
+        # Headless solo si ya tenemos cookies guardadas. Si no, abre visible
+        # para que el usuario resuelva el reCAPTCHA manualmente.
+        headless = self._cookies_path.exists()
         self._browser = await self._playwright.chromium.launch(
-            headless=True,
+            headless=headless,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
             ],
         )
-        context = await self._browser.new_context(
+        self._context = await self._browser.new_context(
             viewport={"width": 1280, "height": 800},
             user_agent=(
                 "Mozilla/5.0 (X11; Linux x86_64) "
@@ -88,10 +97,15 @@ class SISFEScraper:
             ),
         )
         # Ocultar navigator.webdriver para evadir detección de bot
-        await context.add_init_script(
+        await self._context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        self.page = await context.new_page()
+        # Cargar sesión guardada si existe
+        if self._cookies_path.exists():
+            cookies = json.loads(self._cookies_path.read_text(encoding="utf-8"))
+            await self._context.add_cookies(cookies)
+            logger.info(f"Sesión cargada desde {self._cookies_path}")
+        self.page = await self._context.new_page()
         return self
 
     async def __aexit__(self, *args):
@@ -120,23 +134,45 @@ class SISFEScraper:
     async def login(self) -> bool:
         """
         Login en SISFE para matriculados.
-        Flujo: navegar → sección "Matriculados" → seleccionar Circunscripción
-               → seleccionar Colegio → ingresar Matrícula → ingresar Contraseña → submit.
+
+        Si existe sisfe_cookies.json (sesión previa), intenta reutilizarla.
+        Si no existe o está expirada, abre el navegador en modo visible,
+        rellena el formulario automáticamente y pide al usuario que resuelva
+        el reCAPTCHA y haga click en 'Ingresar'. Luego guarda las cookies.
         """
         login_url = self.config.get(
             "login_url", "https://sisfe.justiciasantafe.gov.ar"
+        )
+        search_url = self.config.get(
+            "search_url", "https://sisfe.justiciasantafe.gov.ar/buscar-expediente"
         )
         circunscripcion = self.config.get("circunscripcion", "Rosario")
         colegio = self.config.get("colegio", "Abogados")
         matricula = self.config.get("matricula", "")
         password = self.config.get("password", "")
 
+        # ── 0) Verificar sesión guardada ──────────────────────────────────
+        if self._cookies_path.exists():
+            try:
+                await self.page.goto(search_url, wait_until="load", timeout=20_000)
+                if (
+                    "login" not in self.page.url.lower()
+                    and "acceso" not in self.page.url.lower()
+                ):
+                    logger.info("Sesión previa válida — login omitido.")
+                    return True
+                logger.info("Sesión expirada, se rehace el login...")
+                self._cookies_path.unlink()
+            except Exception:
+                pass
+
         try:
+            # ── 1) Navegar a la página de login ───────────────────────────
             logger.info(f"Navegando a {login_url}")
             await self.page.goto(login_url, wait_until="load", timeout=60_000)
-            await self._pause(1_000, 2_500)  # pausa inicial como humano
+            await self._pause(1_000, 2_500)
 
-            # 1) Buscar y clickear el acceso para "Matriculados"
+            # ── 2) Click en "Matriculados" ────────────────────────────────
             matriculados_selectors = [
                 'a:has-text("Matriculados")',
                 'a:has-text("matriculados")',
@@ -158,7 +194,7 @@ class SISFEScraper:
                 )
                 await self._screenshot("debug_login_no_matriculados_link")
 
-            # 2) Seleccionar Circunscripción (dropdown)
+            # ── 3) Seleccionar Circunscripción ────────────────────────────
             circ_selectors = [
                 'select[name*="circunscripcion" i]',
                 'select[name*="circ" i]',
@@ -172,13 +208,12 @@ class SISFEScraper:
                 logger.info(f"Seleccionando circunscripción: {circunscripcion}")
                 await self._pause(400, 900)
                 await circ_select.select_option(label=circunscripcion)
-                # Esperar a que el dropdown de Colegio se actualice (puede ser dinámico)
                 await self._pause(1_200, 2_500)
             else:
                 logger.warning("No se encontró el select de Circunscripción.")
                 await self._screenshot("debug_login_no_circ_select")
 
-            # 3) Seleccionar Colegio (dropdown)
+            # ── 4) Seleccionar Colegio ────────────────────────────────────
             col_selectors = [
                 'select[name*="colegio" i]',
                 'select[name*="col" i]',
@@ -190,21 +225,18 @@ class SISFEScraper:
                 logger.info(f"Seleccionando colegio: {colegio}")
                 await self._pause(400, 900)
                 await col_select.select_option(label=colegio)
-                # Esperar a que el formulario dinámico cargue el campo de matrícula
                 await self.page.wait_for_load_state("networkidle", timeout=10_000)
                 await self._pause(1_500, 3_000)
             else:
                 logger.warning("No se encontró el select de Colegio.")
                 await self._screenshot("debug_login_no_col_select")
 
-            # 4) Ingresar Matrícula (tipeo humano)
-            # Screenshot para diagnóstico antes de buscar el campo
-            await self._screenshot("debug_login_before_matricula")
+            # ── 5) Ingresar Matrícula ─────────────────────────────────────
             mat_selectors = [
                 'input[name*="matricul" i]',
                 'input[id*="matricul" i]',
                 'input[placeholder*="matricul" i]',
-                'input[placeholder*="matr" i]',   # cubre "MATRÍCULA" sin cruzar la tilde
+                'input[placeholder*="matr" i]',
                 'input[name*="mat" i]',
                 'input[id*="mat" i]',
                 'input[name="usuario"]',
@@ -215,7 +247,6 @@ class SISFEScraper:
                 'input[type="number"]',
                 'input[type="text"]:visible',
                 'input[type="text"]',
-                # Fallback: primer input que no sea password ni oculto
                 'input:not([type="password"]):not([type="hidden"]):not([type="submit"]):not([type="button"])',
             ]
             mat_field = await self._find_element(mat_selectors, timeout=8_000)
@@ -229,39 +260,48 @@ class SISFEScraper:
 
             await self._pause(500, 1_200)
 
-            # 5) Ingresar Contraseña (tipeo humano)
+            # ── 6) Ingresar Contraseña ────────────────────────────────────
             pass_field = await self.page.wait_for_selector(
                 'input[type="password"]', timeout=5_000
             )
             await self._type_human(pass_field, password)
+            await self._pause(800, 1_500)
 
-            await self._pause(800, 2_000)  # pausa antes de enviar
+            # ── 7) Esperar reCAPTCHA manual y submit ──────────────────────
+            print("\n" + "=" * 60)
+            print("  ACCIÓN REQUERIDA EN EL NAVEGADOR:")
+            print("  1. Tildá el checkbox 'No soy un robot'")
+            print("  2. Resolvé el desafío si aparece")
+            print("  3. Hacé click en 'Ingresar'")
+            print("  El bot va a continuar automáticamente.")
+            print("=" * 60 + "\n")
+            logger.info("Esperando que el usuario complete el reCAPTCHA (hasta 3 min)...")
 
-            # 6) Submit
-            submit = await self._find_element(SUBMIT_SELECTORS, timeout=3_000)
-            if submit:
-                await submit.click()
+            url_antes = self.page.url
+            for _ in range(360):  # hasta 3 minutos
+                await asyncio.sleep(0.5)
+                if self.page.url != url_antes:
+                    break
             else:
-                await self.page.keyboard.press("Enter")
+                logger.error("Timeout: el reCAPTCHA no fue resuelto en 3 minutos.")
+                return False
 
             await self.page.wait_for_load_state("load", timeout=20_000)
 
-            # Verificar resultado
+            # ── 8) Verificar resultado y guardar cookies ──────────────────
             current_url = self.page.url.lower()
-            if "login" not in current_url and "acceso" not in current_url:
-                logger.info("Login exitoso")
-                return True
+            if "login" in current_url or "acceso" in current_url:
+                body = await self.page.inner_text("body")
+                if any(
+                    kw in body.lower()
+                    for kw in ["incorrecta", "inválida", "error", "invalid"]
+                ):
+                    logger.error("Login falló: credenciales incorrectas.")
+                    await self._screenshot("debug_login_failed")
+                    return False
 
-            body = await self.page.inner_text("body")
-            if any(
-                kw in body.lower()
-                for kw in ["incorrecta", "inválida", "error", "invalid", "no encontrada"]
-            ):
-                logger.error("Login falló: credenciales incorrectas")
-                await self._screenshot("debug_login_failed")
-                return False
-
-            logger.info("Login aparentemente exitoso (sin redirección clara)")
+            await self._save_cookies()
+            logger.info("Login exitoso — sesión guardada.")
             return True
 
         except Exception as exc:
@@ -385,6 +425,14 @@ class SISFEScraper:
             except PlaywrightTimeout:
                 continue
         return None
+
+    async def _save_cookies(self):
+        """Guarda las cookies de sesión actuales en disco."""
+        cookies = await self._context.cookies()
+        self._cookies_path.write_text(
+            json.dumps(cookies, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        logger.info(f"Sesión guardada en {self._cookies_path}")
 
     async def _screenshot(self, name: str):
         try:

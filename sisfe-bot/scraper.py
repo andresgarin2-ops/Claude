@@ -125,7 +125,7 @@ class SISFEScraper:
 
         try:
             logger.info(f"Navegando a {login_url}")
-            await self.page.goto(login_url, wait_until="networkidle", timeout=30_000)
+            await self.page.goto(login_url, wait_until="load", timeout=60_000)
             await self._pause(1_000, 2_500)  # pausa inicial como humano
 
             # 1) Buscar y clickear el acceso para "Matriculados"
@@ -141,7 +141,7 @@ class SISFEScraper:
                 logger.info("Sección Matriculados encontrada, haciendo click...")
                 await self._pause(500, 1_200)
                 await mat_link.click()
-                await self.page.wait_for_load_state("networkidle", timeout=15_000)
+                await self.page.wait_for_load_state("load", timeout=15_000)
                 await self._pause(800, 2_000)
             else:
                 logger.warning(
@@ -222,7 +222,7 @@ class SISFEScraper:
             else:
                 await self.page.keyboard.press("Enter")
 
-            await self.page.wait_for_load_state("networkidle", timeout=20_000)
+            await self.page.wait_for_load_state("load", timeout=20_000)
 
             # Verificar resultado
             current_url = self.page.url.lower()
@@ -259,7 +259,7 @@ class SISFEScraper:
         try:
             logger.info(f"Consultando expediente {codigo}")
             await self._pause(2_000, 5_000)  # pausa antes de cada consulta
-            await self.page.goto(search_url, wait_until="networkidle", timeout=30_000)
+            await self.page.goto(search_url, wait_until="load", timeout=60_000)
             await self._pause(800, 2_000)
 
             filled = await self._fill_search_field(codigo)
@@ -275,7 +275,7 @@ class SISFEScraper:
             else:
                 await self.page.keyboard.press("Enter")
 
-            await self.page.wait_for_load_state("networkidle", timeout=20_000)
+            await self.page.wait_for_load_state("load", timeout=20_000)
 
             # Capturar contenido completo para detectar cualquier cambio
             content = await self.page.inner_text("body")
